@@ -1,0 +1,73 @@
+{
+  "name": "folio-study",
+  "productName": "Folio",
+  "version": "0.1.0",
+  "description": "Folio — your sources, your AI, your way of learning.",
+  "author": "Filhao2019",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
+  "type": "module",
+  "main": "desktop/main.js",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "dev": "node --env-file-if-exists=.env --watch server/index.js",
+    "test": "node --test tests/*.test.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test:e2e": "playwright test",
+    "test:live": "node --env-file-if-exists=.env --test tests/live/*.live.js",
+    "format": "prettier --write server public tests docs *.json *.js *.md",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "desktop": "electron .",
+    "desktop:build": "electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "mammoth": "^1.11.0",
+    "pdfjs-dist": "^6.2.108",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.10.0",
+    "electron": "45.2.0",
+    "electron-builder": "26.18.0",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3"
+  },
+  "build": {
+    "appId": "app.folio.study",
+    "productName": "Folio",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop/**",
+      "server/**",
+      "public/**",
+      "package.json",
+      "LICENSE"
+    ],
+    "asar": false,
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "desktop/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Folio",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

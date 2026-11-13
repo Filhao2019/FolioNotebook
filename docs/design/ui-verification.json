@@ -1,0 +1,33 @@
+{
+  "date": "2026-11-10",
+  "fixture": "Temporary isolated guest notebook; no live provider calls or user data",
+  "fonts": [
+    "DM Sans",
+    "Lora"
+  ],
+  "results": [
+    {
+      "width": 1440,
+      "horizontalOverflow": false,
+      "panelsReachable": true
+    },
+    {
+      "width": 1024,
+      "horizontalOverflow": false,
+      "panelsReachable": true
+    },
+    {
+      "width": 768,
+      "horizontalOverflow": false,
+      "panelsReachable": true
+    },
+    {
+      "width": 390,
+      "horizontalOverflow": false,
+      "panelsReachable": true
+    }
+  ],
+  "darkMode": true,
+  "portugueseCopy": true,
+  "browserErrors": []
+}

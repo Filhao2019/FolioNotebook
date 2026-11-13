@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'"
+    />
+    <title>Server settings</title>
+    <link rel="stylesheet" href="settings.css" />
+    <script src="settings.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <h1>Where Folio keeps your notebooks</h1>
+      <form id="form">
+        <label class="choice">
+          <input type="radio" name="mode" value="local" checked />
+          <span>
+            <strong>This computer only</strong>
+            <small>Private. Notebooks stay on this computer.</small>
+          </span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="mode" value="remote" />
+          <span>
+            <strong>A shared Folio server</strong>
+            <small
+              >Needed to share notebooks, join groups and follow communities
+              with friends. Everyone opens the same server address.</small
+            >
+          </span>
+        </label>
+        <label class="address">
+          Server address
+          <input
+            id="url"
+            type="url"
+            placeholder="https://folio.example.com"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </label>
+        <p id="data" class="muted"></p>
+        <p id="error" class="error" role="alert"></p>
+        <div class="actions">
+          <button type="button" id="cancel">Cancel</button>
+          <button type="submit" class="primary">Save and restart</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

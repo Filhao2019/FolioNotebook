@@ -1,0 +1,12 @@
+node_modules/
+.env
+data/
+.secrets/
+test-results/
+playwright-report/
+coverage/
+*.log
+screenshots/
+dist/
+obsidian vault/
+references from google notebook/

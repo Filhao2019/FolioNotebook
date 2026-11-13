@@ -1,0 +1,26 @@
+services:
+  app:
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:4310:4310"
+    environment:
+      APP_ORIGIN: ${APP_ORIGIN:?Set the HTTPS public origin}
+      MASTER_KEY: ${MASTER_KEY:?Inject a base64-encoded 32-byte master key}
+    volumes:
+      - folio-data:/app/data
+    depends_on:
+      - clamav
+    restart: unless-stopped
+    mem_limit: 1g
+    security_opt:
+      - no-new-privileges:true
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamav-signatures:/var/lib/clamav
+    restart: unless-stopped
+    mem_limit: 2g
+volumes:
+  folio-data:
+  clamav-signatures:

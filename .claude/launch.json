@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "folio-test",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tests/e2e/server.js"],
+      "port": 4391
+    }
+  ]
+}
