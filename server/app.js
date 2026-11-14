@@ -19,6 +19,7 @@ import { catalog, createProvider, ollamaLibrary } from "./providers.js";
 import { codexEnabled } from "./codex-provider.js";
 import { validateUpload, createIngestor } from "./ingestion.js";
 import { fetchWebSource } from "./web-source.js";
+import { youtubeUrls, youtubeVideoId } from "./youtube.js";
 import { retrieve, groundedPrompt, validateCitations } from "./retrieval.js";
 import {
   generationPrompt,
@@ -64,14 +65,16 @@ const settingsSchema = z.object({
   emoji: z.string().max(16).optional(),
   effort: effortSchema.optional(),
 });
+const sourceIdList = (min) =>
+  z
+    .array(idSchema)
+    .min(min)
+    .max(50)
+    .transform((a) => [...new Set(a)]);
 const aiSchema = z.object({
   connectionId: idSchema,
   model: z.string().min(1).max(200),
-  sourceIds: z
-    .array(idSchema)
-    .min(1)
-    .max(50)
-    .transform((a) => [...new Set(a)]),
+  sourceIds: sourceIdList(1),
   mode: z.enum(["strict", "broad"]).default("strict"),
   effort: effortSchema.default("auto"),
 });
@@ -123,6 +126,128 @@ export async function createApp(options = {}) {
       event,
       resource,
     );
+  /** Uploads and web addresses need a scanner in production and are rate limited. */
+  const uploadGate = (user) => {
+    assert(
+      !production || process.env.SCANNER_COMMAND || options.scanner,
+      503,
+      "Uploads require a configured malware scanner in production.",
+    );
+    limiter.take(`upload:${user}`, 10);
+  };
+  /**
+   * Store a file as a queued notebook source within the source, quota and
+   * duplicate limits. With `reuse`, a file already in the notebook is returned
+   * instead of failing.
+   * @param {any} notebook
+   * @param {string} user
+   * @param {{ name: string, buffer: Buffer }} file
+   */
+  const addSource = async (notebook, user, file, reuse = false) => {
+    const digest = hash(file.buffer),
+      existing = db.get(
+        "SELECT id FROM sources WHERE notebook_id=? AND hash=?",
+        notebook.id,
+        digest,
+      );
+    if (reuse && existing) return { id: existing.id, added: false };
+    assert(
+      db.get(
+        "SELECT COUNT(*) AS count FROM sources WHERE notebook_id=?",
+        notebook.id,
+      ).count < 50,
+      400,
+      "Source limit reached (50).",
+    );
+    const format = validateUpload(file.name, file.buffer);
+    const count = db.get(
+      "SELECT COUNT(*) AS count FROM sources s JOIN notebooks n ON n.id=s.notebook_id WHERE n.user_id=?",
+      user,
+    ).count;
+    assert(
+      count < 200,
+      400,
+      "Account storage quota reached (200 files, 10 MB each).",
+    );
+    assert(!existing, 409, "This file is already in the notebook.");
+    const id = randomUUID(),
+      path = join(uploadDirectory, id + "." + format);
+    await writeFile(path, file.buffer, { flag: "wx", mode: 0o600 });
+    try {
+      db.transaction(() => {
+        db.run(
+          "INSERT INTO sources(id,notebook_id,title,format,path,hash,status) VALUES(?,?,?,?,?,?,?)",
+          id,
+          notebook.id,
+          file.name,
+          format,
+          path,
+          digest,
+          "queued",
+        );
+        db.run(
+          "INSERT INTO jobs(id,source_id,status) VALUES(?,?,?)",
+          randomUUID(),
+          id,
+          "queued",
+        );
+      });
+    } catch (e) {
+      await unlink(path).catch(() => {});
+      throw e;
+    }
+    audit(user, "source_uploaded", id);
+    return { id, added: true };
+  };
+  /** Wait (until `deadline`) for a source to be indexed; resolves to null when ready, else the reason it is not. */
+  const sourceProblem = async (id, deadline) => {
+    for (;;) {
+      const row = db.get("SELECT status,error FROM sources WHERE id=?", id);
+      if (row?.status === "ready") return null;
+      if (!row || ["failed", "cancelled"].includes(row.status))
+        return row?.error || "it could not be processed";
+      if (Date.now() >= deadline) return "it is still being processed";
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  };
+  /**
+   * Add the YouTube videos linked in a chat message as sources and wait (up to
+   * 30 s in total) until they can be searched. Failures never throw; they are
+   * reported back so the chat can carry on and say what happened.
+   * @param {any} notebook
+   * @param {string} user
+   * @param {string[]} urls
+   */
+  const addChatVideos = async (notebook, user, urls) => {
+    const deadline = Date.now() + 30_000,
+      ready = [],
+      added = [],
+      failures = [];
+    for (const url of urls) {
+      try {
+        uploadGate(user);
+        const source = await addSource(
+          notebook,
+          user,
+          await fetchUrl(url),
+          true,
+        );
+        if (source.added) added.push(source.id);
+        const problem = await sourceProblem(source.id, deadline);
+        if (problem) failures.push({ url, reason: problem });
+        else ready.push(source.id);
+      } catch (error) {
+        failures.push({
+          url,
+          reason:
+            error instanceof AppError
+              ? error.message
+              : "an unexpected error occurred",
+        });
+      }
+    }
+    return { ready, added, failures };
+  };
   /**
    * Load a record the user may reach. Connections are strictly private;
    * notebook content follows notebook access (owner > edit > view), see
@@ -972,12 +1097,7 @@ export async function createApp(options = {}) {
         return json(res, data);
       }
       if (path[2] === "sources" && method === "POST") {
-        assert(
-          !production || process.env.SCANNER_COMMAND || options.scanner,
-          503,
-          "Uploads require a configured malware scanner in production.",
-        );
-        limiter.take(`upload:${user}`, 10);
+        uploadGate(user);
         const input = z
           .object({
             name: short.optional(),
@@ -997,67 +1117,14 @@ export async function createApp(options = {}) {
           400,
           "Invalid file encoding.",
         );
-        assert(
-          db.get(
-            "SELECT COUNT(*) AS count FROM sources WHERE notebook_id=?",
-            notebook.id,
-          ).count < 50,
-          400,
-          "Source limit reached (50).",
-        );
         // Web addresses are fetched server-side (public hosts only) and stored like an upload.
-        const fetched = input.url ? await fetchUrl(input.url) : null;
-        if (fetched) input.name = fetched.name;
-        const buffer = fetched
-            ? fetched.buffer
-            : Buffer.from(input.base64, "base64"),
-          format = validateUpload(input.name, buffer);
-        const count = db.get(
-          "SELECT COUNT(*) AS count FROM sources s JOIN notebooks n ON n.id=s.notebook_id WHERE n.user_id=?",
+        const { id } = await addSource(
+          notebook,
           user,
-        ).count;
-        assert(
-          count < 200,
-          400,
-          "Account storage quota reached (200 files, 10 MB each).",
+          input.url
+            ? await fetchUrl(input.url)
+            : { name: input.name, buffer: Buffer.from(input.base64, "base64") },
         );
-        const digest = hash(buffer);
-        assert(
-          !db.get(
-            "SELECT id FROM sources WHERE notebook_id=? AND hash=?",
-            notebook.id,
-            digest,
-          ),
-          409,
-          "This file is already in the notebook.",
-        );
-        const id = randomUUID(),
-          path = join(uploadDirectory, id + "." + format);
-        await writeFile(path, buffer, { flag: "wx", mode: 0o600 });
-        try {
-          db.transaction(() => {
-            db.run(
-              "INSERT INTO sources(id,notebook_id,title,format,path,hash,status) VALUES(?,?,?,?,?,?,?)",
-              id,
-              notebook.id,
-              input.name,
-              format,
-              path,
-              digest,
-              "queued",
-            );
-            db.run(
-              "INSERT INTO jobs(id,source_id,status) VALUES(?,?,?)",
-              randomUUID(),
-              id,
-              "queued",
-            );
-          });
-        } catch (e) {
-          await unlink(path).catch(() => {});
-          throw e;
-        }
-        audit(user, "source_uploaded", id);
         return json(res, { id, status: "queued" }, 202);
       }
       if (path[2] === "notes" && method === "POST") {
@@ -1148,6 +1215,8 @@ export async function createApp(options = {}) {
           .extend({
             connectionId: idSchema.optional(),
             model: z.string().min(1).max(200).optional(),
+            // A chat message may bring its own sources (YouTube links).
+            sourceIds: sourceIdList(0),
             message: z.string().trim().min(1).max(8000).optional(),
             kind: z
               .enum([
@@ -1230,16 +1299,72 @@ export async function createApp(options = {}) {
                   notebook.id,
                 )?.text || ""
               : "";
+          // YouTube links in a chat message become sources, ready before this answer is built.
+          let question = input.message,
+            videoNote = "",
+            videos = { ready: [], added: [], failures: [] };
+          const links =
+            !generation && notebook.access !== "view"
+              ? youtubeUrls(String(input.message))
+              : [];
+          if (links.length) {
+            videos = await addChatVideos(notebook, user, links);
+            input.sourceIds = [
+              ...new Set([...input.sourceIds, ...videos.ready]),
+            ];
+            videoNote = videos.failures
+              .map(
+                (f) =>
+                  `\n\n[Folio note: the transcript of ${f.url} could not be fetched (${f.reason}). Tell the user this plainly; do not guess what the video contains.]`,
+              )
+              .join("");
+            if (
+              input.message
+                .split(/\s+/)
+                .every((w) =>
+                  youtubeVideoId(w.replace(/^\(+|[.,;:!?)]+$/g, "")),
+                )
+            )
+              question =
+                (input.language || JSON.parse(notebook.settings).language) ===
+                "Português (Brasil)"
+                  ? "Resuma este vídeo."
+                  : "Summarize this video.";
+            assert(
+              input.sourceIds.length || !videos.failures.length,
+              422,
+              `The video transcript could not be fetched: ${videos.failures[0]?.reason}`,
+            );
+          }
+          // The video links themselves say nothing about its content: search without them.
+          const searchText = (question || "")
+            .replace(/https?:\/\/\S+/gi, (u) =>
+              youtubeVideoId(u.replace(/[.,;:!?)]+$/, "")) ? " " : u,
+            )
+            .trim();
           const evidence = await retrieve(
             db,
             notebook.id,
             input.sourceIds,
-            [input.message || input.focus, previous.slice(0, 300)]
+            [searchText || input.focus, previous.slice(0, 300)]
               .filter(Boolean)
               .join(" "),
             embedding,
             generation,
           );
+          // Keywords rarely describe a whole video ("summarize this"), so a
+          // pasted video also contributes passages spread evenly through it.
+          if (videos.ready.length) {
+            const sampled = (
+              await retrieve(db, notebook.id, videos.ready, "", null, true)
+            ).chunks.slice(0, 24);
+            const seen = new Set(sampled.map((c) => c.chunkId));
+            evidence.chunks = [
+              ...sampled,
+              ...evidence.chunks.filter((c) => !seen.has(c.chunkId)),
+            ].map((c, i) => ({ ...c, id: i + 1 }));
+            evidence.method = "source sampling";
+          }
           // Labels need only titles; suggested questions need a small sample.
           if (input.kind === "labels") evidence.chunks = evidence.chunks.slice(0, 1);
           if (input.kind === "questions")
@@ -1420,10 +1545,19 @@ export async function createApp(options = {}) {
             "X-Accel-Buffering": "no",
           });
           const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+          // Tells the client the notebook gained sources (and which are ready to select).
+          if (videos.added.length)
+            send({ sourcesChanged: true, sourceIds: videos.ready });
           let output = "",
             usage = { input: 0, output: 0 };
           if (!evidence.chunks.length && input.mode === "strict") {
             output =
+              videos.failures
+                .map(
+                  (f) =>
+                    `The transcript of ${f.url} could not be fetched (${f.reason}).\n\n`,
+                )
+                .join("") +
               "I could not find supporting passages in the selected sources. Try more specific terms, select additional sources, or enable broader knowledge mode.";
             send({ text: output });
           } else {
@@ -1439,7 +1573,7 @@ export async function createApp(options = {}) {
                 role: m.role,
                 content:
                   i === list.length - 1
-                    ? m.text.slice(0, 6000)
+                    ? question.slice(0, 6000) + videoNote
                     : m.text.slice(0, m.role === "assistant" ? 600 : 400),
               }));
             send({

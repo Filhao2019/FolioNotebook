@@ -4,6 +4,7 @@ import { lookup as dnsLookup } from "node:dns";
 import { BlockList, isIP } from "node:net";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
 import { AppError, assert } from "./security.js";
+import { fetchYouTubeSource, youtubeVideoId } from "./youtube.js";
 
 const MAX_BYTES = 10 * 1024 * 1024,
   MAX_REDIRECTS = 5,
@@ -202,7 +203,7 @@ const entities = {
   deg: "°",
   euro: "€",
 };
-const decodeEntities = (text) =>
+export const decodeEntities = (text) =>
   text.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]*);/gi, (match, name) => {
     if (name[0] !== "#") return entities[name.toLowerCase()] ?? match;
     const code =
@@ -301,7 +302,7 @@ function decodeText(body, type) {
   }
 }
 
-const fileName = (base, extension) =>
+export const fileName = (base, extension) =>
   (base
     .replace(/[\\/:*?"<>|\p{Cc}]/gu, " ")
     .replace(/\s+/g, " ")
@@ -355,11 +356,14 @@ export function toSource(url, type, body) {
 /**
  * Fetch a public web address and convert it to a source file.
  * Every redirect hop is re-validated; private and loopback hosts are refused.
+ * YouTube video links are not downloaded as pages: their transcript is fetched instead.
  * @param {string} raw
  * @returns {Promise<{name:string, buffer:Buffer, url:string}>}
  */
 export async function fetchWebSource(raw) {
   let url = parsePublicUrl(raw);
+  const videoId = youtubeVideoId(url.href);
+  if (videoId) return fetchYouTubeSource(videoId);
   const signal = AbortSignal.timeout(TOTAL_TIMEOUT);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const result = await requestOnce(url, signal);

@@ -220,8 +220,9 @@ const pt = {
   "Web address": "Endereço da web",
   "Add web page": "Adicionar página da web",
   "Enter a web address first.": "Digite um endereço da web primeiro.",
-  "Paste a link to a public article, PDF or text file. Pages that need a sign-in or JavaScript cannot be read.":
-    "Cole o link de um artigo público, PDF ou arquivo de texto. Páginas que exigem login ou JavaScript não podem ser lidas.",
+  "Paste a link to a public article, PDF, text file or YouTube video (its transcript is read). Pages that need a sign-in or JavaScript cannot be read.":
+    "Cole o link de um artigo público, PDF, arquivo de texto ou vídeo do YouTube (a transcrição é lida). Páginas que exigem login ou JavaScript não podem ser lidas.",
+  "Web page, PDF or YouTube link": "Página da web, PDF ou link do YouTube",
   "Add text as source": "Adicionar texto como fonte",
   "Search resources": "Buscar recursos",
   "Manual deck": "Baralho manual",
@@ -4150,7 +4151,7 @@ function uploadModal() {
     link = el("input", {
       type: "url",
       maxlength: 2000,
-      placeholder: "https://",
+      placeholder: t("Web page, PDF or YouTube link"),
       "aria-label": t("Web address"),
     });
   const addLink = button("Add web page", () => {
@@ -4208,7 +4209,7 @@ function uploadModal() {
         "p",
         { class: "muted small" },
         t(
-          "Paste a link to a public article, PDF or text file. Pages that need a sign-in or JavaScript cannot be read.",
+          "Paste a link to a public article, PDF, text file or YouTube video (its transcript is read). Pages that need a sign-in or JavaScript cannot be read.",
         ),
       ),
       field("Web address", link),
@@ -4399,7 +4400,8 @@ async function sendMessage(
   let selection;
   try {
     selection = aiSelection();
-    if (!selection.sourceIds.length)
+    // A pasted YouTube link becomes the source, so it may be the only one.
+    if (!selection.sourceIds.length && !/youtu\.?be/i.test(message))
       throw new Error("Select at least one ready source.");
   } catch (error) {
     toast(error.message, true);
@@ -4456,6 +4458,9 @@ async function sendMessage(
         if (!frame.startsWith("data:")) continue;
         const event = JSON.parse(frame.slice(5));
         if (event.error) throw new Error(event.error);
+        // New sources are listed by the notebook refresh below; select them now.
+        if (event.sourcesChanged)
+          for (const id of event.sourceIds) state.selected.add(id);
         if (event.text && !event.done) {
           responseText += event.text;
           output.replaceChildren(
@@ -6084,12 +6089,12 @@ function settingsView() {
       el(
         "p",
         { class: "muted small" },
-        "Available: notebook sources, cited chat, guides, flashcards with SM-2, multiple-choice quizzes, mind maps, Markdown notes, data tables, exports, read-only sharing, study groups and communities.",
+        "Available: notebook sources, YouTube video transcripts, cited chat,guides, flashcards with SM-2, multiple-choice quizzes, mind maps, Markdown notes, data tables, exports, read-only sharing, study groups and communities.",
       ),
       el(
         "p",
         { class: "muted small" },
-        "Planned: OCR, image/audio/video ingestion, audio and video overviews, editable slide decks, advanced quiz formats, MFA, managed KMS and cloud file integrations. English and Brazilian Portuguese interface coverage is partial.",
+        "Planned: OCR, image, audio and video file ingestion, audio and video overviews, editable slide decks, advanced quiz formats, MFA, managed KMS and cloud file integrations. English and Brazilian Portuguese interface coverage is partial.",
       ),
     ),
   );
