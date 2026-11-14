@@ -9,7 +9,7 @@ API contracts and authentication documentation were reviewed on 2026-11-10. Mode
 | Google Gemini | `x-goog-api-key`                                             | `/v1beta/models`, paginated                    | `streamGenerateContent`           |
 | OpenRouter    | API bearer key or documented PKCE authorization/key exchange | `/api/v1/models`; `/key` validates credentials | Chat Completions SSE              |
 | DeepSeek      | API bearer key                                               | `/models`                                      | Compatible Chat Completions SSE   |
-| Mistral       | API bearer key                                               | `/v1/models`                                   | Chat Completions SSE              |
+| Ollama Cloud  | ollama.com API key                                           | `/api/tags`                                    | Compatible Chat Completions       |
 | xAI           | API bearer key                                               | `/v1/models`                                   | Chat Completions SSE              |
 | Ollama        | Administrator-enabled loopback service                       | `/api/tags`                                    | Local compatible Chat Completions |
 
@@ -39,7 +39,7 @@ No consumer OAuth support is assumed for the other providers. Enterprise federat
 
 ## Embeddings and costs
 
-Notebook settings → Semantic indexing lets you explicitly choose an OpenAI, OpenRouter, Mistral or local discovered embedding model. Selected text and later query text go to that connection; this secondary disclosure is shown before indexing. Indexing is synchronous and limited to 500 chunks per request, batched in groups of 32. Vectors persist in SQLite and are compared with cosine similarity; reciprocal ranking combines semantic and FTS results. Without vectors, retrieval stays lexical. Large/vector indexing jobs are a later milestone.
+Notebook settings → Semantic indexing lets you explicitly choose an OpenAI, OpenRouter or local Ollama discovered embedding model. Selected text and later query text go to that connection; this secondary disclosure is shown before indexing. Indexing is synchronous and limited to 500 chunks per request, batched in groups of 32. Vectors persist in SQLite and are compared with cosine similarity; reciprocal ranking combines semantic and FTS results. Without vectors, retrieval stays lexical. Large/vector indexing jobs are a later milestone.
 
 Inference is capped at 150 requests/account/day and two simultaneous requests/account. No automatic provider fallback, looping repair generation or silent secondary AI service is used. Token totals use reported provider usage. USD cost estimates are calculated only from explicit provider-discovered per-token prices (currently available through OpenRouter model metadata); unknown costs stay unknown. Failed/incomplete requests and embeddings may incur unrecorded charges. Check the provider's billing dashboard.
 
@@ -50,6 +50,5 @@ Inference is capped at 150 requests/account/day and two simultaneous requests/ac
 - [Gemini API keys](https://ai.google.dev/gemini-api/docs/api-key) and [model metadata](https://ai.google.dev/api/models).
 - [OpenRouter OAuth PKCE](https://openrouter.ai/docs/guides/overview/auth/oauth).
 - [DeepSeek compatible API](https://api-docs.deepseek.com/).
-- [Mistral API](https://docs.mistral.ai/api).
 - [xAI API](https://docs.x.ai/developers/rest-api-reference/inference/responses).
 - [Ollama API and loopback endpoints](https://docs.ollama.com/api/introduction).

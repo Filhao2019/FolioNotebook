@@ -990,6 +990,31 @@
     background: var(--wash);
     padding: 2px 4px;
   }
+  /* Key points the tutor highlights with ==text==, like a highlighter pen. */
+  .prose mark.key-point {
+    background: linear-gradient(
+      transparent 12%,
+      color-mix(in srgb, #ffd84d 55%, transparent) 12% 88%,
+      transparent 88%
+    );
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 3px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  .prose blockquote.callout {
+    margin: 10px 0;
+    padding: 10px 14px;
+    border-left: 4px solid var(--accent);
+    background: var(--wash);
+    border-radius: 0 8px 8px 0;
+  }
+  .prose hr {
+    border: 0;
+    border-top: 1px solid var(--line, var(--wash));
+    margin: 14px 0;
+  }
   .prose pre {
     background: var(--wash);
     padding: 15px;

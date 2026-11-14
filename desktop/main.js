@@ -67,6 +67,9 @@ async function startLocalServer(dataDir, secretDir) {
     : join(appRoot, ".env");
   if (existsSync(envFile)) process.loadEnvFile(envFile);
   process.env.HOST = "127.0.0.1";
+  // The desktop app serves only this computer, so its own Ollama is allowed
+  // unless the .env file turns it off.
+  process.env.ALLOW_LOCAL_MODELS ??= "true";
   if (process.env.NODE_ENV === "production")
     process.env.NODE_ENV = "development";
   const port = await freePort();

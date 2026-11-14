@@ -39,12 +39,6 @@ export const catalog = {
     protocol: "compatible",
     docs: "https://platform.deepseek.com/api_keys",
   },
-  mistral: {
-    name: "Mistral",
-    base: "https://api.mistral.ai/v1",
-    protocol: "compatible",
-    docs: "https://console.mistral.ai/api-keys",
-  },
   xai: {
     name: "xAI",
     base: "https://api.x.ai/v1",
@@ -55,9 +49,43 @@ export const catalog = {
     name: "Ollama (local)",
     base: "http://127.0.0.1:11434",
     protocol: "ollama",
-    docs: "https://docs.ollama.com/",
+    docs: "https://ollama.com/download",
+  },
+  // Ollama's hosted models (gpt-oss, DeepSeek, Qwen, Kimi, GLM …) through an
+  // ollama.com API key; same API as the local app.
+  ollamacloud: {
+    name: "Ollama Cloud",
+    base: "https://ollama.com",
+    protocol: "ollama",
+    docs: "https://ollama.com/settings/keys",
   },
 };
+// Popular models from the Ollama library that Folio can download into the
+// local Ollama app. Installed models are discovered from Ollama itself.
+export const ollamaLibrary = [
+  ["gpt-oss:20b", "OpenAI gpt-oss 20B"],
+  ["gpt-oss:120b", "OpenAI gpt-oss 120B"],
+  ["llama3.2:3b", "Meta Llama 3.2 3B"],
+  ["llama3.1:8b", "Meta Llama 3.1 8B"],
+  ["llama3.3:70b", "Meta Llama 3.3 70B"],
+  ["qwen3:4b", "Qwen 3 4B"],
+  ["qwen3:8b", "Qwen 3 8B"],
+  ["qwen3:30b", "Qwen 3 30B"],
+  ["qwen2.5:7b", "Qwen 2.5 7B"],
+  ["qwen2.5-coder:7b", "Qwen 2.5 Coder 7B"],
+  ["deepseek-r1:8b", "DeepSeek R1 8B"],
+  ["deepseek-r1:14b", "DeepSeek R1 14B"],
+  ["gemma3:4b", "Google Gemma 3 4B"],
+  ["gemma3:12b", "Google Gemma 3 12B"],
+  ["gemma3:27b", "Google Gemma 3 27B"],
+  ["phi4:14b", "Microsoft Phi-4 14B"],
+  ["phi4-mini:3.8b", "Microsoft Phi-4 mini"],
+  ["mistral:7b", "Mistral 7B"],
+  ["mistral-nemo:12b", "Mistral Nemo 12B"],
+  ["llava:7b", "LLaVA 7B (vision)"],
+  ["nomic-embed-text", "Nomic Embed Text (embeddings)"],
+  ["mxbai-embed-large", "mxbai Embed Large (embeddings)"],
+].map(([id, name]) => ({ id, name }));
 // Reasoning effort is sent only to models known to accept it; "auto" keeps
 // each provider's own default and never adds a parameter.
 const thinkingBudget = { low: 2048, medium: 8192, high: 16384 };
@@ -114,11 +142,16 @@ export function createProvider(providerId, key, options = {}) {
       ? { "x-api-key": key, "anthropic-version": "2023-06-01" }
       : config.protocol === "gemini"
         ? { "x-goog-api-key": key }
-        : config.protocol === "ollama"
+        : config.protocol === "ollama" && !key
           ? {}
           : { Authorization: `Bearer ${key}` }),
   };
-  async function request(path, body = undefined, signal = undefined) {
+  async function request(
+    path,
+    body = undefined,
+    signal = undefined,
+    timeout = 90000,
+  ) {
     let response;
     try {
       response = await fetcher(config.base + path, {
@@ -126,8 +159,8 @@ export function createProvider(providerId, key, options = {}) {
         headers,
         body: body ? JSON.stringify(body) : undefined,
         signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(90000)])
-          : AbortSignal.timeout(90000),
+          ? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
+          : AbortSignal.timeout(timeout),
         redirect: "error",
       });
     } catch {
@@ -195,10 +228,31 @@ export function createProvider(providerId, key, options = {}) {
       }
       return result;
     },
+    // Downloads a model from the Ollama library into the local Ollama app.
+    async pullModel(model) {
+      assert(
+        providerId === "ollama",
+        400,
+        "Only local Ollama can download models.",
+      );
+      const result = await (
+        await request("/api/pull", { model, stream: false }, undefined, 3_600_000)
+      ).json();
+      assert(
+        result.status === "success",
+        502,
+        "Ollama could not download the model.",
+      );
+    },
     async validateConnection() {
       if (providerId === "openrouter") await request("/key");
       const models = await adapter.listModels();
-      assert(models.length, 400, "The provider returned no accessible models.");
+      // A fresh local Ollama has no models yet; Folio can download them.
+      assert(
+        models.length || providerId === "ollama",
+        400,
+        "The provider returned no accessible models.",
+      );
       return models;
     },
     async *streamChat({
@@ -356,7 +410,7 @@ export function createProvider(providerId, key, options = {}) {
     },
     async embed(model, texts) {
       assert(
-        ["openai", "openrouter", "mistral", "ollama"].includes(providerId),
+        ["openai", "openrouter", "ollama"].includes(providerId),
         400,
         "This provider does not have an embedding adapter.",
       );

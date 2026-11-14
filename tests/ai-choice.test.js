@@ -65,7 +65,7 @@ test("ignores a remembered model the provider no longer offers", () => {
 });
 
 test("skips connections without any text model", () => {
-  const embedOnly = { id: "c3", provider: "mistral", models: [embed("e")] };
+  const embedOnly = { id: "c3", provider: "openai", models: [embed("e")] };
   assert.deepEqual(
     resolveActiveAi({ activeConnectionId: "c3" }, [embedOnly, gpt]),
     {

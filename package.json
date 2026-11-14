@@ -1,7 +1,7 @@
 {
   "name": "folio-study",
   "productName": "Folio",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Folio — your sources, your AI, your way of learning.",
   "author": "Filhao2019",
   "license": "SEE LICENSE IN LICENSE",
@@ -22,7 +22,9 @@
     "format": "prettier --write server public tests docs *.json *.js *.md",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "desktop": "electron .",
-    "desktop:build": "electron-builder --win --publish never"
+    "desktop:build": "electron-builder --win --publish never",
+    "desktop:build:mac": "electron-builder --mac --publish never",
+    "desktop:build:linux": "electron-builder --linux --publish never"
   },
   "dependencies": {
     "mammoth": "^1.11.0",
@@ -59,6 +61,45 @@
         "nsis"
       ],
       "icon": "desktop/icon.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.education",
+      "icon": "desktop/icon.png",
+      "artifactName": "Folio-${version}-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "pacman"
+      ],
+      "category": "Education",
+      "icon": "desktop/icon.png",
+      "maintainer": "Filhao2019",
+      "synopsis": "Study with your own sources and your own AI",
+      "artifactName": "Folio-${version}-linux-${arch}.${ext}",
+      "desktop": {
+        "entry": {
+          "Name": "Folio",
+          "StartupWMClass": "Folio"
+        }
+      }
     },
     "nsis": {
       "oneClick": true,

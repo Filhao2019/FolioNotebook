@@ -15,7 +15,7 @@ import {
   secretStore,
   RateLimiter,
 } from "./security.js";
-import { catalog, createProvider } from "./providers.js";
+import { catalog, createProvider, ollamaLibrary } from "./providers.js";
 import { codexEnabled } from "./codex-provider.js";
 import { validateUpload, createIngestor } from "./ingestion.js";
 import { fetchWebSource } from "./web-source.js";
@@ -355,7 +355,7 @@ export async function createApp(options = {}) {
     }
     limiter.take(`ip:${req.socket.remoteAddress}`, ipRequestLimit);
     if (path[0] === "health")
-      return json(res, { status: "ok", version: "0.2.0" });
+      return json(res, { status: "ok", version: "0.3.0" });
     if (
       path[0] === "auth" &&
       ["register", "login", "guest"].includes(path[1]) &&
@@ -526,6 +526,8 @@ export async function createApp(options = {}) {
           name: c.name,
           docs: c.docs,
           oauth: Boolean(c.oauth),
+          keyless: ["ollama", "codex"].includes(id),
+          ...(id === "ollama" ? { library: ollamaLibrary } : {}),
           available:
             id === "codex"
               ? codexEnabled()
@@ -595,6 +597,26 @@ export async function createApp(options = {}) {
       const { connection, adapter } = adapterFor(path[1], user);
       if (path[2] === "models" && method === "POST") {
         limiter.take(`connect:${user}`, 6);
+        const models = await adapter.listModels();
+        db.run(
+          "UPDATE connections SET models=? WHERE id=?",
+          JSON.stringify(models),
+          connection.id,
+        );
+        return json(res, { models });
+      }
+      if (path[2] === "pull" && method === "POST") {
+        limiter.take(`connect:${user}`, 6);
+        const { model } = z
+          .object({
+            model: z
+              .string()
+              .trim()
+              .regex(/^[a-z0-9][a-z0-9._\-/]*(:[a-z0-9._-]+)?$/i)
+              .max(120),
+          })
+          .parse(await body(req));
+        await adapter.pullModel(model);
         const models = await adapter.listModels();
         db.run(
           "UPDATE connections SET models=? WHERE id=?",
@@ -1066,11 +1088,11 @@ export async function createApp(options = {}) {
         const input = aiSchema.parse(await body(req));
         const { connection, adapter } = adapterFor(input.connectionId, user);
         assert(
-          ["openai", "openrouter", "mistral", "ollama"].includes(
+          ["openai", "openrouter", "ollama"].includes(
             connection.provider,
           ),
           400,
-          "Use an OpenAI, OpenRouter, Mistral or local embedding connection.",
+          "Use an OpenAI, OpenRouter or local Ollama embedding connection.",
         );
         assert(
           JSON.parse(connection.models).some(
@@ -1195,19 +1217,40 @@ export async function createApp(options = {}) {
               model: input.embeddingModel,
             };
           }
+          // Short follow-ups ("and why?") search with the previous question too.
+          const previous =
+            !generation && String(input.message).length < 60
+              ? db.get(
+                  "SELECT text FROM messages WHERE notebook_id=? AND role='user' ORDER BY rowid DESC LIMIT 1",
+                  notebook.id,
+                )?.text || ""
+              : "";
           const evidence = await retrieve(
             db,
             notebook.id,
             input.sourceIds,
-            input.message || input.focus,
+            [input.message || input.focus, previous.slice(0, 300)]
+              .filter(Boolean)
+              .join(" "),
             embedding,
             generation,
           );
+          // Labels need only titles; suggested questions need a small sample.
+          if (input.kind === "labels") evidence.chunks = evidence.chunks.slice(0, 1);
+          if (input.kind === "questions")
+            evidence.chunks = evidence.chunks
+              .slice(0, 8)
+              .map((c) => ({ ...c, text: c.text.slice(0, 700) }));
           const settings = {
             ...JSON.parse(notebook.settings),
             ...(input.language ? { language: input.language } : {}),
           };
-          const system = groundedPrompt(evidence.chunks, settings, input.mode);
+          const system = groundedPrompt(
+            evidence.chunks,
+            settings,
+            input.mode,
+            !generation,
+          );
           if (generation) {
             assert(
               evidence.chunks.length > 0,
@@ -1383,11 +1426,19 @@ export async function createApp(options = {}) {
           } else {
             const history = db
               .all(
-                "SELECT role,text FROM messages WHERE notebook_id=? ORDER BY rowid DESC LIMIT 9",
+                "SELECT role,text FROM messages WHERE notebook_id=? ORDER BY rowid DESC LIMIT 5",
                 notebook.id,
               )
               .reverse()
-              .map((m) => ({ role: m.role, content: m.text.slice(0, 6000) }));
+              // Earlier answers are resent only as short reminders; the current
+              // question (last) is kept whole up to the input limit.
+              .map((m, i, list) => ({
+                role: m.role,
+                content:
+                  i === list.length - 1
+                    ? m.text.slice(0, 6000)
+                    : m.text.slice(0, m.role === "assistant" ? 600 : 400),
+              }));
             send({
               meta: {
                 provider: connection.provider,

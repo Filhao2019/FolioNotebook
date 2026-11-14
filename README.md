@@ -18,13 +18,29 @@ You can write notes, create manual flashcards, import/export card CSVs, and revi
 
 ## Desktop app
 
-Folio runs as a Windows desktop app with its own window, Start Menu entry and desktop shortcut.
+Folio runs as a desktop app on **Windows, macOS and Linux** (Ubuntu/Debian, Omarchy/Arch and others).
+
+| System            | Download from the GitHub release                  |
+| ----------------- | ------------------------------------------------- |
+| Windows           | `Folio-Setup-x.y.z.exe`                           |
+| macOS             | `Folio-x.y.z-mac-arm64.dmg` (Apple silicon) or `-x64.dmg` (Intel) |
+| Ubuntu / Debian   | `Folio-x.y.z-linux-amd64.deb` → `sudo apt install ./Folio-*.deb` |
+| Omarchy / Arch    | `Folio-x.y.z-linux-x64.pacman` → `sudo pacman -U Folio-*.pacman` |
+| Any Linux         | `Folio-x.y.z-linux-x86_64.AppImage` → `chmod +x` and run |
+
+The macOS and Linux builds are made by GitHub Actions for every release tag ([desktop.yml](.github/workflows/desktop.yml)). They are not code-signed: on macOS right-click the app → **Open** the first time.
 
 ```powershell
 pnpm install --frozen-lockfile
-pnpm desktop          # run from this folder (uses ./data and ./.secrets)
-pnpm desktop:build    # build dist/Folio Setup <version>.exe
+pnpm desktop                # run from this folder (uses ./data and ./.secrets)
+pnpm desktop:build          # Windows: dist/Folio Setup <version>.exe
+pnpm desktop:build:mac      # macOS: .dmg and .zip (run on a Mac)
+pnpm desktop:build:linux    # Linux: AppImage, .deb and .pacman
 ```
+
+Without the desktop app, run Folio from source on macOS or Linux with `./start-folio.sh` (Windows: `Start Folio.cmd`).
+
+Local **Ollama** works with no API key: install [Ollama](https://ollama.com/download), then in **AI connections** pick *Ollama (local)*, connect, and download models (gpt-oss, Llama, Qwen, DeepSeek R1, Gemma, Phi, Mistral …) from the connection card. **Ollama Cloud** uses an ollama.com API key for its hosted models. The desktop app enables local Ollama by default; a self-hosted server needs `ALLOW_LOCAL_MODELS=true`.
 
 The installed app starts Folio's server privately on 127.0.0.1 and keeps data in `%APPDATA%Folio` unless `%APPDATA%Foliodesktop.json` sets `dataDir`/`secretDir`. An optional `%APPDATA%Folio.env` supplies the same settings as `.env` (for example `ALLOW_CODEX`). The installer is not code-signed, so Windows SmartScreen may warn on first run.
 
@@ -38,7 +54,8 @@ Sharing, groups and communities work between accounts on the **same Folio server
 - Several AI connections at once; Settings chooses the one in use and each connection remembers its model.
 - Read-only notebook sharing by email; study groups whose notebooks reach every member and are view-only or editable by group setting; communities where only the president publishes and anyone follows, likes and follows notebooks.
 - Live model discovery, validated connections, encrypted credentials and SSE chat.
-- OpenAI Responses, Anthropic Messages, Gemini, OpenRouter, DeepSeek, Mistral, xAI adapters; opt-in local Ollama.
+- OpenAI Responses, Anthropic Messages, Gemini, OpenRouter, DeepSeek, xAI adapters; local Ollama (with model downloads) and Ollama Cloud.
+- Study-mode tutoring: layered explanations, emoji section headings, bold/italic terms, lists, a quick check question, and highlighted key points.
 - OpenRouter's documented PKCE key authorization flow; other connections use official API keys.
 - Source selection, keyword RAG, optional explicitly authorized embedding/hybrid retrieval, inspectable citations.
 - Saved guides, editable Markdown notes, flashcards, multiple-choice quizzes, editable tree mind maps and data tables.

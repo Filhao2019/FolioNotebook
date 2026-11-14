@@ -629,7 +629,9 @@ function empty(title, text, control, glyph = "book") {
 }
 function inline(text, citations = []) {
   const nodes = [];
-  const pattern = /(\[\d+\]|\*\*[^*]+\*\*|`[^`]+`)/g;
+  // ==text== is a key-point highlight the tutor marks for the learner.
+  const pattern =
+    /(\[\d+\]|==[^=\n]+==|\*\*[^*]+\*\*|`[^`]+`|(?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<!\w)_[^_\s][^_]*_(?!\w))/g;
   let last = 0;
   for (const match of text.matchAll(pattern)) {
     nodes.push(text.slice(last, match.index));
@@ -651,14 +653,19 @@ function inline(text, citations = []) {
             )
           : value,
       );
-    } else
+    } else if (value.startsWith("`"))
+      nodes.push(el("code", {}, value.slice(1, -1)));
+    else if (value.startsWith("=="))
       nodes.push(
         el(
-          value.startsWith("`") ? "code" : "strong",
-          {},
-          value.startsWith("`") ? value.slice(1, -1) : value.slice(2, -2),
+          "mark",
+          { class: "key-point" },
+          ...inline(value.slice(2, -2), citations),
         ),
       );
+    else if (value.startsWith("**"))
+      nodes.push(el("strong", {}, ...inline(value.slice(2, -2), citations)));
+    else nodes.push(el("em", {}, ...inline(value.slice(1, -1), citations)));
     last = match.index + value.length;
   }
   nodes.push(text.slice(last));
@@ -685,13 +692,23 @@ function markdown(text, citations = []) {
       continue;
     }
     const heading = line.match(/^(#{1,6})\s+(.*)/);
-    const item = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)/);
-    if (item) {
-      if (!list) {
-        list = el("ul");
+    const item = line.match(/^\s*([-*•]|\d+[.)])\s+(.*)/);
+    const quote = line.match(/^>\s?(.*)/);
+    if (/^\s*([-*_])\1{2,}\s*$/.test(line)) {
+      list = null;
+      out.append(el("hr"));
+    } else if (item) {
+      const tag = /\d/.test(item[1]) ? "ol" : "ul";
+      if (!list || list.tagName.toLowerCase() !== tag) {
+        list = el(tag);
         out.append(list);
       }
-      list.append(el("li", {}, ...inline(item[1], citations)));
+      list.append(el("li", {}, ...inline(item[2], citations)));
+    } else if (quote) {
+      list = null;
+      out.append(
+        el("blockquote", { class: "callout" }, ...inline(quote[1], citations)),
+      );
     } else {
       list = null;
       out.append(
@@ -1209,17 +1226,21 @@ function connectionsView() {
   const update = () => {
     const p = state.providers.find((p) => p.id === provider.value);
     help.href = p.docs;
-    const noKey = ["ollama", "codex"].includes(provider.value);
+    const noKey = Boolean(p?.keyless);
     key.required = !noKey;
     key.disabled = noKey;
     key.placeholder =
       provider.value === "codex"
         ? "Uses your local Codex sign-in"
-        : "Official API key";
+        : provider.value === "ollama"
+          ? "No key needed for local Ollama"
+          : "Official API key";
     help.textContent =
       provider.value === "codex"
         ? "Uses the ChatGPT account signed in to Codex CLI on this computer. Plan usage limits apply."
-        : "Get an official API key";
+        : provider.value === "ollama"
+          ? "Install the free Ollama app, keep it running, then connect. You can download models from Folio afterwards."
+          : "Get an official API key";
   };
   provider.addEventListener("change", update);
   update();
@@ -1331,6 +1352,39 @@ function connectionsView() {
                 ),
               ),
             );
+            const library =
+              state.providers.find((p) => p.id === c.provider)?.library || [];
+            const pick = el(
+              "select",
+              { "aria-label": t("Ollama model") },
+              library
+                .filter((m) => !c.models.some((x) => x.id === m.id))
+                .map((m) => el("option", { value: m.id }, `${m.name} (${m.id})`)),
+            );
+            const pull = library.length
+              ? el(
+                  "div",
+                  { class: "row wrap" },
+                  pick,
+                  button(
+                    "Download model",
+                    (e) =>
+                      action(async () => {
+                        e.currentTarget.disabled = true;
+                        toast(t("Downloading… large models can take several minutes."));
+                        await api("connections/" + c.id + "/pull", {
+                          method: "POST",
+                          data: { model: pick.value },
+                        });
+                        await refreshData();
+                        render();
+                        toast(t("Model ready."));
+                      }),
+                    "small",
+                    "download",
+                  ),
+                )
+              : null;
             return el(
               "div",
               { class: "panel stack" },
@@ -1403,6 +1457,7 @@ function connectionsView() {
                 ),
               ),
               details,
+              pull,
             );
           }),
         )
@@ -5652,7 +5707,7 @@ function semanticModal() {
     el("option", { value: "" }, t("Embedding model")),
   );
   for (const c of state.connections.filter((c) =>
-    ["openai", "openrouter", "mistral", "ollama"].includes(c.provider),
+    ["openai", "openrouter", "ollama"].includes(c.provider),
   ))
     for (const m of c.models.filter((m) => m.capabilities.embeddings))
       models.append(
