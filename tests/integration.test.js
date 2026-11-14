@@ -137,7 +137,7 @@ test("persistent study flow, PDF ingestion, hybrid retrieval, grading and cross-
     const review = await a.call("cards/" + card.id + "/review", "POST", {
       grade: 4,
     });
-    assert.equal(review.data.interval, 1);
+    assert.equal(review.data.interval, 3);
     const quiz = await a.call("notebooks/" + notebook + "/generate", "POST", {
       ...selected,
       kind: "quiz",

@@ -47,18 +47,19 @@ test("chunking bounds text, preserves content and overlap", () => {
   assert.equal(cosine([0, 0], [0, 0]), 0);
   assert.equal(cosine([1], [1, 2]), 0);
 });
-test("SM-2 intervals expand and lapse schedules a short relearning step", () => {
-  let c = { ease: 2.5, repetitions: 0, interval: 0, lapses: 0 };
-  c = schedule(c, 4, 0);
-  assert.equal(c.interval, 1);
-  c = schedule(c, 4, 0);
-  assert.equal(c.interval, 6);
-  c = schedule(c, 4, 0);
-  assert.ok(c.interval > 6);
-  c = schedule(c, 1, 0);
+test("FSRS intervals expand and a lapse schedules a short relearning step", () => {
+  let c = { repetitions: 0, interval: 0, lapses: 0 };
+  c = schedule(c, 3, 0);
+  assert.equal(c.interval, 3);
+  const first = c.interval;
+  c = schedule(c, 3, c.due);
+  assert.ok(c.interval > first);
+  c = schedule(c, 3, c.due);
+  const now = c.due;
+  c = schedule(c, 1, now);
   assert.equal(c.repetitions, 0);
   assert.equal(c.lapses, 1);
-  assert.equal(c.due, 600000);
+  assert.equal(c.due, now + 600000);
 });
 test("quiz scoring is deterministic and does not infer psychological mistakes", () => {
   const q = [

@@ -68,6 +68,17 @@ export function openDatabase(directory) {
     db.exec("ALTER TABLE sources ADD COLUMN topic TEXT DEFAULT ''");
   if (!hasColumn("messages", "feedback"))
     db.exec("ALTER TABLE messages ADD COLUMN feedback TEXT");
+  // FSRS scheduling state, cached card explanations and 4-button ratings (additive).
+  for (const [table, column, type] of [
+    ["cards", "stability", "REAL"],
+    ["cards", "difficulty", "REAL"],
+    ["cards", "last_review", "INTEGER"],
+    ["cards", "last_rating", "INTEGER"],
+    ["cards", "detail", "TEXT"],
+    ["card_reviews", "rating", "INTEGER"],
+  ])
+    if (!hasColumn(table, column))
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   return {
     raw: db,
     /** SQL projection types vary by query; validate external inputs before this boundary. @returns {Record<string, any> | undefined} */

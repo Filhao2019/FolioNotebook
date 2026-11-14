@@ -28,7 +28,7 @@ All paths start with `/api`. JSON request/response bodies use UTF-8. Errors are 
 | `POST /sources/:id/retry`, `/cancel`              | Job controls                                                                     |
 | `DELETE /sources/:id`                             | Source/chunk/vector deletion and unlink raw file                                 |
 | `POST /notebooks/:id/chat`                        | SSE tutor stream using selected connection/model/sources                         |
-| `POST /notebooks/:id/generate`                    | Validated guide/flashcards/quiz/mindmap/table/slides                             |
+| `POST /notebooks/:id/generate`                    | Validated guide/flashcards/quiz/mindmap/table/slides; flashcards/quiz also take `count` (50/30), `difficulty` incl. `adaptive`, `cardFocus`, `explanations`, `spaced`, quiz `fromDeck` |
 | `POST /notebooks/:id/embeddings`                  | Explicit secondary embedding connection/model and selected sources               |
 | `POST /notebooks/:id/notes`                       | `{title,markdown}`                                                               |
 | `POST /notebooks/:id/decks`                       | Manual deck `{title}`                                                            |
@@ -36,9 +36,12 @@ All paths start with `/api`. JSON request/response bodies use UTF-8. Errors are 
 | `POST /artifacts/:id/cards`                       | Manual card `{front,back}`                                                       |
 | `POST /artifacts/:id/cards/import`                | Atomic `{cards:[{front,back}]}`, maximum 100                                     |
 | `POST /artifacts/:id/attempt`                     | `{answers:[optionIndexOrNull,...]}`; saved deterministic score and explanations  |
-| `PATCH/DELETE /cards/:id`                         | Edit front/back/flag, delete                                                     |
-| `POST /cards/:id/review`                          | `{grade:0..5}`; saved SM-2 schedule and review record                            |
-| `GET /progress`                                   | Due counts, reviews, quiz attempts, usage and audit activity                     |
+| `POST /artifacts/:quizId/flashcards`              | `{attemptId?,answers?}`; new "Missed: ..." deck from wrong answers, no AI call; `201 {id,count}` |
+| `PATCH/DELETE /cards/:id`                         | Edit front/back/hint/explanation/flag (front/back edits clear the cached detail), delete |
+| `POST /cards/:id/review`                          | `{rating:1..4}` (or legacy `{grade:0..5}`); saved FSRS schedule, review record and next-interval `preview` |
+| `POST /cards/:id/explain`                         | View access. No `question`: cached detailed explanation with `citations`; with `question`/`history`: answer to "Ask Folio AI" |
+| `POST /cards/:id/regenerate`                      | `{instructions?}`; rewrites the card in place, keeping its schedule and history  |
+| `GET /progress`                                   | Due counts, `dueCards`, `weakConcepts`, reviews, quiz attempts, usage and audit activity |
 
 Web sources: `{url}` is fetched by the server over http/https on the default port only. Hosts that resolve to loopback, private, link-local or other non-public addresses are refused, and every redirect hop (maximum 5) is checked again. Responses are capped at 10 MB and 25 seconds. HTML is reduced to Markdown text without running scripts and stored as `.md` with a `Source:` line; PDF, DOCX and text responses are stored as-is. Pages that need a sign-in or JavaScript return 422. Video transcripts are not supported.
 

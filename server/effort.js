@@ -24,7 +24,7 @@ const quickKinds = new Set(["labels", "questions"]);
  */
 export function autoEffort({ kind = "chat", message = "", difficulty } = {}) {
   if (quickKinds.has(kind)) return "light";
-  if (kind !== "chat") return difficulty === "advanced" ? "high" : "medium";
+  if (kind !== "chat") return difficulty === "advanced" || difficulty === "hard" ? "high" : "medium";
   const text = String(message);
   if (highEffortCue.test(text)) return "high";
   if (mediumEffortCue.test(text) || text.length > 400) return "medium";

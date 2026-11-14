@@ -25,6 +25,14 @@ import {
   generationPrompt,
   parseStructured,
   schedule,
+  preview,
+  ratingFromGrade,
+  gradeFromRating,
+  weaknesses,
+  weakConcepts,
+  explainPrompt,
+  askContext,
+  rewritePrompt,
   scoreQuiz,
   safeQuiz,
 } from "./learning.js";
@@ -78,6 +86,25 @@ const aiSchema = z.object({
   mode: z.enum(["strict", "broad"]).default("strict"),
   effort: effortSchema.default("auto"),
 });
+// A one-card AI request: the connection and model default to the user's own choice.
+const cardAiSchema = z.object({
+  connectionId: idSchema.optional(),
+  model: z.string().min(1).max(200).optional(),
+  effort: effortSchema.default("auto"),
+  language: z.enum(["English", "Português (Brasil)"]).optional(),
+});
+/** Where each referenced passage number comes from, for the client's source links. */
+const passageCitations = (chunks, refs) =>
+  [...new Set(refs)]
+    .map((ref) => chunks.find((c) => c.id === ref))
+    .filter(Boolean)
+    .map((c) => ({
+      ref: c.id,
+      sourceId: c.sourceId,
+      title: c.title,
+      page: c.page,
+      section: c.section,
+    }));
 const unpack = (row) =>
   row && { ...row, settings: JSON.parse(row.settings || "{}") };
 const publicUser = (row) => ({
@@ -340,23 +367,140 @@ export async function createApp(options = {}) {
     );
     return result;
   };
+  /** A card as the client sees it: schedule state, next intervals, no cached detail. */
+  const cardView = (/** @type {Record<string, any>} */ row, now = Date.now()) => {
+    const { detail, ...c } = row;
+    /** @type {Record<string, any>} */
+    const view = {
+      ...c,
+      refs: JSON.parse(c.refs),
+      lastRating: c.last_rating ?? null,
+      hasDetail: Boolean(detail),
+      preview: preview(c, now),
+    };
+    return view;
+  };
   const safeArtifact = (row) => {
     const content = JSON.parse(row.content);
+    const now = Date.now();
+    const cards =
+      row.kind === "flashcards"
+        ? db
+            .all(
+              "SELECT * FROM cards WHERE artifact_id=? ORDER BY rowid",
+              row.id,
+            )
+            .map((c) => cardView(c, now))
+        : [];
     return {
       ...row,
       content: row.kind === "quiz" ? safeQuiz(content) : content,
       citations: JSON.parse(row.citations),
       ...(row.kind === "flashcards"
         ? {
-            cards: db
-              .all(
-                "SELECT * FROM cards WHERE artifact_id=? ORDER BY rowid",
-                row.id,
-              )
-              .map((c) => ({ ...c, refs: JSON.parse(c.refs) })),
+            cards,
+            spaced: content.spaced !== false,
+            counts: {
+              total: cards.length,
+              due: cards.filter((c) => c.due <= now).length,
+              missed: cards.filter((c) => c.lastRating === 1).length,
+              fresh: cards.filter(
+                (c) => c.last_review == null && !c.repetitions && !c.lapses,
+              ).length,
+            },
           }
         : {}),
     };
+  };
+  /** Ready source IDs of a notebook, the pool a card's passages come from. */
+  const readySources = (notebookId) =>
+    db
+      .all(
+        "SELECT id FROM sources WHERE notebook_id=? AND status='ready' ORDER BY created,rowid LIMIT 50",
+        notebookId,
+      )
+      .map((s) => s.id);
+  /**
+   * Up to four passages that match a card, plus the ones the card itself cites,
+   * renumbered from 1. Empty when the notebook has no ready sources.
+   */
+  const cardPassages = async (card, artifact) => {
+    const ids = readySources(artifact.notebook_id);
+    if (!ids.length) return [];
+    const found = (
+      await retrieve(
+        db,
+        artifact.notebook_id,
+        ids,
+        `${card.front} ${card.back}`,
+        null,
+        false,
+        4,
+      )
+    ).chunks;
+    const cited = JSON.parse(artifact.citations);
+    const own = JSON.parse(card.refs)
+      .map((r) => cited[r - 1])
+      .filter(
+        (c) =>
+          c &&
+          ids.includes(c.sourceId) &&
+          !found.some((f) => f.chunkId === c.chunkId),
+      )
+      .slice(0, 2);
+    return [...found, ...own].map((c, i) => ({ ...c, id: i + 1 }));
+  };
+  /** One short model call about a card, under the same limits and usage records as generation. */
+  const cardAi = async (res, user, input, request) => {
+    limiter.take(`ai:${user}`, 20);
+    assert(
+      db.get(
+        "SELECT COUNT(*) AS count FROM usage WHERE user_id=? AND created>=date('now')",
+        user,
+      ).count < 150,
+      429,
+      "Daily generation quota reached (150).",
+    );
+    assert(
+      (activeAi.get(user) || 0) < 2,
+      429,
+      "Two AI requests are already running.",
+    );
+    const { connection, adapter } = aiConnection(input, user);
+    activeAi.set(user, (activeAi.get(user) || 0) + 1);
+    const abort = new AbortController();
+    res.once("close", () => {
+      if (!res.writableEnded) abort.abort();
+    });
+    const usageId = randomUUID();
+    db.run(
+      "INSERT INTO usage(id,user_id,provider,model) VALUES(?,?,?,?)",
+      usageId,
+      user,
+      connection.provider,
+      input.model,
+    );
+    try {
+      const result = await adapter.chat({
+        model: input.model,
+        signal: abort.signal,
+        ...request,
+      });
+      db.run(
+        "UPDATE usage SET input_tokens=?,output_tokens=?,estimated_cost=? WHERE id=?",
+        result.usage.input,
+        result.usage.output,
+        estimateCost(
+          result.usage,
+          JSON.parse(connection.models).find((m) => m.id === input.model)
+            ?.pricing,
+        ),
+        usageId,
+      );
+      return result;
+    } finally {
+      activeAi.set(user, Math.max(0, (activeAi.get(user) || 1) - 1));
+    }
   };
   const stats = (user) => {
     const cards = db.all(
@@ -380,6 +524,8 @@ export async function createApp(options = {}) {
     return {
       cards: cards.length,
       due: cards.filter((c) => c.due <= Date.now()).length,
+      dueCards: cards.filter((c) => c.due <= Date.now()).length,
+      weakConcepts: weaknesses(db, { user }),
       reviews: reviews.length,
       recall: reviews.length
         ? Math.round(
@@ -1232,10 +1378,24 @@ export async function createApp(options = {}) {
                 "infographic",
               ])
               .optional(),
-            count: z.number().int().min(1).max(30).default(8),
+            count: z.number().int().min(1).max(50).default(8),
             difficulty: z
-              .enum(["beginner", "intermediate", "advanced"])
+              .enum([
+                "beginner",
+                "intermediate",
+                "advanced",
+                "easy",
+                "medium",
+                "hard",
+                "adaptive",
+              ])
               .default("intermediate"),
+            cardFocus: z
+              .enum(["definitions", "concepts", "qa", "exam", "mixed"])
+              .default("mixed"),
+            explanations: z.boolean().default(true),
+            spaced: z.boolean().default(true),
+            fromDeck: idSchema.optional(),
             focus: z.string().max(1000).default(""),
             language: z.enum(["English", "Português (Brasil)"]).optional(),
             embeddingConnectionId: idSchema.optional(),
@@ -1248,6 +1408,34 @@ export async function createApp(options = {}) {
           400,
           "A message or artifact type is required.",
         );
+        assert(
+          input.count <= (input.kind === "flashcards" ? 50 : 30),
+          400,
+          "Too many items requested (flashcards 50, other tools 30).",
+        );
+        let deckFronts = [];
+        if (input.fromDeck) {
+          assert(
+            generation && input.kind === "quiz",
+            400,
+            "Only a quiz can be built from a flashcard deck.",
+          );
+          assert(
+            db.get(
+              "SELECT id FROM artifacts WHERE id=? AND notebook_id=? AND kind='flashcards'",
+              input.fromDeck,
+              notebook.id,
+            ),
+            400,
+            "Choose a flashcard deck from this notebook.",
+          );
+          deckFronts = db
+            .all(
+              "SELECT front FROM cards WHERE artifact_id=? ORDER BY rowid LIMIT 40",
+              input.fromDeck,
+            )
+            .map((c) => c.front.slice(0, 120));
+        }
         limiter.take(`ai:${user}`, 20);
         assert(
           db.get(
@@ -1396,13 +1584,20 @@ export async function createApp(options = {}) {
                     ...input.sourceIds,
                   )
                 : [];
-            const prompt = generationPrompt(input, labelSources);
+            const prompt = generationPrompt(input, labelSources, {
+              deckFronts,
+              weak:
+                input.difficulty === "adaptive"
+                  ? weakConcepts(db, notebook.id)
+                  : [],
+            });
             const result = await adapter.chat({
               model: input.model,
               effort: resolveEffort(input.effort, input),
               system,
               messages: [{ role: "user", content: prompt }],
-              maxTokens: 7000,
+              maxTokens:
+                input.kind === "flashcards" && input.count > 25 ? 12000 : 7000,
               // Every study tool from the same sources shares this system
               // prompt, so a second tool reads it from the provider's cache.
               cache: true,
@@ -1488,6 +1683,7 @@ export async function createApp(options = {}) {
                   "Coverage is sampled. Compare the guide against all source headings; completeness is not guaranteed.",
               };
             }
+            if (input.kind === "flashcards") content.spaced = input.spaced;
             const id = randomUUID();
             db.transaction(() => {
               db.run(
@@ -1825,6 +2021,81 @@ export async function createApp(options = {}) {
         audit(user, "quiz_completed", artifact.id);
         return json(res, { id, ...result });
       }
+      if (method === "POST" && path[2] === "flashcards") {
+        assert(artifact.kind === "quiz", 400, "This is not a quiz.");
+        const content = JSON.parse(artifact.content);
+        const input = z
+          .object({
+            attemptId: idSchema.optional(),
+            answers: z
+              .array(z.number().int().min(0).max(5).nullable())
+              .max(30)
+              .optional(),
+          })
+          .parse(await body(req));
+        let answers = input.answers;
+        if (input.attemptId) {
+          const attempt = db.get(
+            "SELECT answers FROM quiz_attempts WHERE id=? AND artifact_id=?",
+            input.attemptId,
+            artifact.id,
+          );
+          assert(attempt, 404, "This quiz attempt is unavailable.");
+          answers = JSON.parse(attempt.answers);
+        }
+        assert(answers, 400, "Send an attemptId or the quiz answers.");
+        assert(
+          answers.length === content.questions.length,
+          400,
+          "Submit one answer slot per question.",
+        );
+        const missed = scoreQuiz(content.questions, answers)
+          .results.map((r, i) => ({
+            ...r,
+            options: content.questions[i].options,
+          }))
+          .filter((r) => !r.correct);
+        assert(
+          missed.length,
+          400,
+          "Nothing was answered incorrectly, so there are no cards to make.",
+        );
+        const id = randomUUID(),
+          title = `Missed: ${artifact.title}`.slice(0, 200),
+          cards = missed.map((r) => ({
+            front: r.question,
+            back: r.options[r.answer],
+            hint: "",
+            explanation: r.explanation.slice(0, 2000),
+            refs: r.refs,
+          }));
+        db.transaction(() => {
+          db.run(
+            "INSERT INTO artifacts(id,notebook_id,kind,title,content,citations) VALUES(?,?,?,?,?,?)",
+            id,
+            artifact.notebook_id,
+            "flashcards",
+            title,
+            JSON.stringify({ title, cards, spaced: true }),
+            artifact.citations,
+          );
+          cards.forEach((c) =>
+            db.run(
+              "INSERT INTO cards(id,artifact_id,front,back,hint,explanation,refs,due) VALUES(?,?,?,?,?,?,?,?)",
+              randomUUID(),
+              id,
+              c.front,
+              c.back,
+              c.hint,
+              c.explanation,
+              JSON.stringify(c.refs),
+              Date.now(),
+            ),
+          );
+        });
+        audit(user, "generated_flashcards", id);
+        return json(res, { id, count: cards.length }, 201);
+      }
       if (method === "POST" && path[2] === "cards") {
         assert(
           artifact.kind === "flashcards",
@@ -1871,47 +2142,230 @@ export async function createApp(options = {}) {
       }
     }
     if (path[0] === "cards") {
-      const card = owned("cards", path[1], user, needFor(method));
+      // Viewers may ask for an explanation; nothing of theirs is stored.
+      const card = owned(
+        "cards",
+        path[1],
+        user,
+        method === "POST" && path[2] === "explain" ? "view" : needFor(method),
+      );
       if (method === "POST" && path[2] === "review") {
         const input = z
-          .object({ grade: z.number().int().min(0).max(5) })
+          .object({
+            rating: z.number().int().min(1).max(4).optional(),
+            grade: z.number().int().min(0).max(5).optional(),
+          })
+          .refine((i) => i.rating !== undefined || i.grade !== undefined, {
+            message: "A rating from 1 to 4 is required.",
+          })
           .parse(await body(req));
-        const next = schedule(card, input.grade);
+        const rating = input.rating ?? ratingFromGrade(input.grade),
+          now = Date.now(),
+          next = schedule(card, rating, now);
         db.transaction(() => {
           db.run(
-            "UPDATE cards SET due=?,interval=?,ease=?,repetitions=?,lapses=? WHERE id=?",
+            "UPDATE cards SET due=?,interval=?,repetitions=?,lapses=?,stability=?,difficulty=?,last_review=?,last_rating=? WHERE id=?",
             next.due,
             next.interval,
-            next.ease,
             next.repetitions,
             next.lapses,
+            next.stability,
+            next.difficulty,
+            next.lastReview,
+            rating,
             card.id,
           );
           db.run(
-            "INSERT INTO card_reviews(id,card_id,grade,interval,created) VALUES(?,?,?,?,?)",
+            "INSERT INTO card_reviews(id,card_id,grade,rating,interval,created) VALUES(?,?,?,?,?,?)",
             randomUUID(),
             card.id,
-            input.grade,
+            gradeFromRating(rating),
+            rating,
             next.interval,
-            Date.now(),
+            now,
           );
         });
         audit(user, "card_reviewed", card.id);
-        return json(res, next);
+        return json(res, {
+          ...next,
+          rating,
+          preview: preview(
+            { ...card, ...next, last_review: next.lastReview },
+            now,
+          ),
+        });
+      }
+      if (method === "POST" && path[2] === "explain") {
+        const input = cardAiSchema
+          .extend({
+            question: z.string().trim().min(1).max(1000).optional(),
+            history: z
+              .array(
+                z.object({
+                  role: z.enum(["user", "assistant"]),
+                  text: z.string().max(1000),
+                }),
+              )
+              .max(6)
+              .default([]),
+          })
+          .parse(await body(req));
+        const cached = card.detail ? JSON.parse(card.detail) : null;
+        if (cached && !input.question)
+          return json(res, { ...cached, cached: true });
+        const artifact = db.get(
+          "SELECT * FROM artifacts WHERE id=?",
+          card.artifact_id,
+        );
+        const notebook = db.get(
+          "SELECT settings FROM notebooks WHERE id=?",
+          artifact.notebook_id,
+        );
+        const chunks = await cardPassages(card, artifact);
+        const system = groundedPrompt(
+          chunks,
+          {
+            ...JSON.parse(notebook.settings),
+            ...(input.language ? { language: input.language } : {}),
+          },
+          chunks.length ? "strict" : "broad",
+        );
+        if (input.question) {
+          let turns = input.history;
+          while (turns[0]?.role === "assistant") turns = turns.slice(1);
+          const result = await cardAi(res, user, input, {
+            effort: resolveEffort(input.effort, {
+              kind: "chat",
+              message: input.question,
+            }),
+            system: `${askContext(card, cached?.takeaway)}\n${system}`,
+            messages: [
+              ...turns.map((t) => ({ role: t.role, content: t.text })),
+              { role: "user", content: input.question },
+            ],
+            maxTokens: 1500,
+          });
+          assert(result.text.trim(), 502, "The model returned no text.");
+          const answer = validateCitations(result.text, chunks);
+          audit(user, "card_asked", card.id);
+          return json(res, {
+            answer,
+            citations: passageCitations(
+              chunks,
+              [...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])),
+            ),
+          });
+        }
+        const result = await cardAi(res, user, input, {
+          effort: resolveEffort(input.effort, {
+            kind: "chat",
+            message: card.front,
+          }),
+          system,
+          messages: [
+            { role: "user", content: explainPrompt(card, chunks.length > 0) },
+          ],
+          maxTokens: 2500,
+        });
+        const detail = parseStructured(result.text, "explain", chunks.length);
+        const stored = {
+          ...detail,
+          citations: passageCitations(chunks, detail.refs),
+        };
+        if (card.access !== "view")
+          db.run(
+            "UPDATE cards SET detail=? WHERE id=?",
+            JSON.stringify(stored),
+            card.id,
+          );
+        audit(user, "card_explained", card.id);
+        return json(res, { ...stored, cached: false });
+      }
+      if (method === "POST" && path[2] === "regenerate") {
+        const input = cardAiSchema
+          .extend({ instructions: z.string().max(1000).default("") })
+          .parse(await body(req));
+        const artifact = db.get(
+          "SELECT * FROM artifacts WHERE id=?",
+          card.artifact_id,
+        );
+        const notebook = db.get(
+          "SELECT settings FROM notebooks WHERE id=?",
+          artifact.notebook_id,
+        );
+        // Refs keep the numbering of the deck's own citations, so they stay valid.
+        const live = readySources(artifact.notebook_id);
+        const cited = JSON.parse(artifact.citations);
+        const own = JSON.parse(card.refs)
+          .map((r) => cited[r - 1])
+          .filter((c) => c && live.includes(c.sourceId));
+        const chunks = own.length ? own : await cardPassages(card, artifact);
+        assert(chunks.length, 400, "No source text is available.");
+        const result = await cardAi(res, user, input, {
+          effort: resolveEffort(input.effort, {
+            kind: "flashcards",
+            difficulty: "medium",
+          }),
+          system: groundedPrompt(
+            chunks,
+            {
+              ...JSON.parse(notebook.settings),
+              ...(input.language ? { language: input.language } : {}),
+            },
+            "strict",
+          ),
+          messages: [
+            {
+              role: "user",
+              content: rewritePrompt(card, input.instructions),
+            },
+          ],
+          maxTokens: 1500,
+        });
+        const rewrite = parseStructured(
+          result.text,
+          "cardRewrite",
+          Math.max(...chunks.map((c) => c.id)),
+        );
+        db.run(
+          "UPDATE cards SET front=?,back=?,hint=?,explanation=?,refs=?,detail=NULL WHERE id=?",
+          rewrite.front,
+          rewrite.back,
+          rewrite.hint,
+          rewrite.explanation,
+          JSON.stringify(
+            own.length
+              ? rewrite.refs.filter((r) => own.some((c) => c.id === r))
+              : [],
+          ),
+          card.id,
+        );
+        audit(user, "card_regenerated", card.id);
+        return json(
+          res,
+          cardView(db.get("SELECT * FROM cards WHERE id=?", card.id)),
+        );
       }
       if (method === "PATCH") {
         const input = z
           .object({
             front: z.string().min(1).max(12000).optional(),
             back: z.string().min(1).max(12000).optional(),
+            hint: z.string().max(1000).optional(),
+            explanation: z.string().max(2000).optional(),
             flagged: z.boolean().optional(),
           })
           .parse(await body(req));
+        const front = input.front ?? card.front,
+          back = input.back ?? card.back;
         db.run(
-          "UPDATE cards SET front=?,back=?,flagged=? WHERE id=?",
-          input.front ?? card.front,
-          input.back ?? card.back,
+          "UPDATE cards SET front=?,back=?,hint=?,explanation=?,flagged=?,detail=? WHERE id=?",
+          front,
+          back,
+          input.hint ?? card.hint,
+          input.explanation ?? card.explanation,
           input.flagged === undefined ? card.flagged : Number(input.flagged),
+          front !== card.front || back !== card.back ? null : card.detail,
           card.id,
         );
         return json(res, { ok: true });

@@ -61,7 +61,30 @@ export function fixtureProvider(provider) {
     async chat(request) {
       const prompt = request.messages.at(-1).content;
       let data;
-      if (prompt.includes("Suggest three short questions"))
+      if (request.system?.includes("The learner is studying this flashcard"))
+        return {
+          text: "ATP stores the energy [1] and [9].",
+          usage: { input: 150, output: 20 },
+        };
+      if (prompt.includes("Explain this flashcard"))
+        data = {
+          why: "Mitochondria run aerobic respiration.",
+          detail: "Energy from nutrients is transferred into ATP.",
+          simple: "They make the cell's energy.",
+          example: "Muscle cells have many mitochondria.",
+          takeaway: "Mitochondria make ATP.",
+          refs: [1],
+          followUp: { front: "What is ATP?", back: "The cell's energy carrier." },
+        };
+      else if (prompt.includes("Rewrite this flashcard"))
+        data = {
+          front: "Which organelle makes ATP?",
+          back: "The mitochondrion.",
+          hint: "Powerhouse.",
+          explanation: "Aerobic respiration happens there.",
+          refs: [1],
+        };
+      else if (prompt.includes("Suggest three short questions"))
         data = {
           questions: [
             "What do mitochondria do?",

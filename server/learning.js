@@ -2,7 +2,30 @@ import { z } from "zod";
 
 const refs = z.array(z.number().int().positive()).max(30).default([]);
 const text = z.string().min(1).max(12000);
+const flashcard = z.object({
+  front: text,
+  back: text,
+  hint: z.string().max(1000).default(""),
+  explanation: z.string().max(2000).default(""),
+  refs,
+});
 export const schemas = {
+  cardRewrite: flashcard,
+  explain: z.object({
+    why: z.string().trim().min(1).max(1500),
+    detail: z.string().trim().min(1).max(3000),
+    simple: z.string().trim().min(1).max(1500),
+    example: z.string().trim().min(1).max(1500),
+    takeaway: z.string().trim().min(1).max(400),
+    refs,
+    followUp: z
+      .object({
+        front: z.string().trim().min(1).max(500),
+        back: z.string().trim().min(1).max(1500),
+      })
+      .nullable()
+      .default(null),
+  }),
   questions: z.object({
     questions: z.array(z.string().trim().min(5).max(200)).min(1).max(5),
   }),
@@ -78,18 +101,7 @@ export const schemas = {
   }),
   flashcards: z.object({
     title: text,
-    cards: z
-      .array(
-        z.object({
-          front: text,
-          back: text,
-          hint: z.string().max(1000).default(""),
-          explanation: z.string().max(2000).default(""),
-          refs,
-        }),
-      )
-      .min(1)
-      .max(50),
+    cards: z.array(flashcard).min(1).max(50),
   }),
   quiz: z.object({
     title: text,
@@ -171,34 +183,170 @@ export const shapes = {
     '{"title":"...","markdown":"headings, definitions, examples, common mistakes, review questions, citations [1]","coveredTopics":["..."],"refs":[1]}',
   flashcards:
     '{"title":"...","cards":[{"front":"...","back":"...","hint":"...","explanation":"...","refs":[1]}]}',
+  flashcardsLean:
+    '{"title":"...","cards":[{"front":"...","back":"...","hint":"...","refs":[1]}]}',
+  explain:
+    '{"why":"...","detail":"...","simple":"...","example":"...","takeaway":"...","refs":[1],"followUp":{"front":"...","back":"..."}}',
+  cardRewrite:
+    '{"front":"...","back":"...","hint":"...","explanation":"...","refs":[1]}',
   quiz: '{"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"answer":0,"explanation":"...","topic":"...","refs":[1]}]}',
   mindmap:
     '{"title":"...","nodes":[{"id":"root","parent":null,"label":"...","detail":"...","refs":[1]},{"id":"child","parent":"root","label":"...","detail":"...","refs":[1]}]}',
   table:
     '{"title":"...","columns":["Concept","Description"],"rows":[["...","..."]],"refs":[1]}',
 };
-export function schedule(card, grade, now = Date.now()) {
-  const ease = Math.max(
-    1.3,
-    card.ease + 0.1 - (5 - grade) * (0.08 + (5 - grade) * 0.02),
+// FSRS-5 scheduling with the published default weights and 90% retention.
+const w = [
+  0.40255, 1.18385, 3.173, 15.69105, 7.1949, 0.5345, 1.4604, 0.0046, 1.54575,
+  0.1192, 1.01925, 1.9395, 0.11, 0.29605, 2.2698, 0.2315, 2.9898, 0.51655,
+  0.6621,
+];
+const DECAY = -0.5,
+  FACTOR = 19 / 81,
+  DAY = 86400000,
+  AGAIN_DAYS = 1 / 144;
+const clamp = (x, low, high) => Math.min(high, Math.max(low, x));
+/** Chance of recalling a card `days` after its last review. */
+const retrievability = (days, stability) =>
+  (1 + (FACTOR * days) / stability) ** DECAY;
+/**
+ * A card's memory state, or null for a card never reviewed. Cards scheduled by
+ * the old SM-2 algorithm are converted so existing progress carries over.
+ * @param {Record<string, any>} card
+ */
+function memory(card) {
+  const last = card.last_review ?? card.lastReview;
+  if (card.stability > 0 && card.difficulty > 0 && last != null)
+    return { stability: card.stability, difficulty: card.difficulty, last };
+  if (card.repetitions > 0)
+    return {
+      stability: Math.max(card.interval, 0.5),
+      difficulty: clamp(10 - (card.ease - 1.3) * 5, 1, 10),
+      last: card.due - card.interval * DAY,
+    };
+  return null;
+}
+/**
+ * Stability and difficulty after rating a card, and its next interval in days.
+ * @param {Record<string, any>} card
+ * @param {number} rating 1 Again, 2 Hard, 3 Good, 4 Easy
+ * @param {number} now
+ */
+function review(card, rating, now) {
+  const state = memory(card);
+  if (!state)
+    return {
+      stability: w[rating - 1],
+      difficulty: clamp(w[4] - Math.exp(w[5] * (rating - 1)) + 1, 1, 10),
+    };
+  const { stability: s, difficulty: d } = state;
+  const days = Math.max(0, (now - state.last) / DAY);
+  const r = retrievability(days, s);
+  const harder = d + (-w[6] * (rating - 3) * (10 - d)) / 9;
+  const difficulty = clamp(
+    w[7] * (w[4] - Math.exp(w[5] * 3) + 1) + (1 - w[7]) * harder,
+    1,
+    10,
   );
-  const repetitions = grade < 3 ? 0 : card.repetitions + 1;
-  const interval =
-    grade < 3
-      ? 1 / 144
-      : repetitions === 1
-        ? 1
-        : repetitions === 2
-          ? 6
-          : Math.round(card.interval * ease);
+  let stability;
+  if (days < 1) stability = s * Math.exp(w[17] * (rating - 3 + w[18]));
+  else if (rating === 1)
+    stability = Math.min(
+      s,
+      w[11] * d ** -w[12] * ((s + 1) ** w[13] - 1) * Math.exp(w[14] * (1 - r)),
+    );
+  else
+    stability =
+      s *
+      (1 +
+        Math.exp(w[8]) *
+          (11 - d) *
+          s ** -w[9] *
+          (Math.exp(w[10] * (1 - r)) - 1) *
+          (rating === 2 ? w[15] : 1) *
+          (rating === 4 ? w[16] : 1));
+  return { stability: Math.max(stability, 0.01), difficulty };
+}
+/** Next intervals in days for the four ratings: Hard <= Good < Easy. */
+function outcomes(card, now) {
+  const next = [1, 2, 3, 4].map((rating) => review(card, rating, now));
+  const days = next.map(({ stability }) =>
+    clamp(Math.round(stability), 1, 36500),
+  );
+  const good = days[2];
+  days[1] = Math.min(days[1], good);
+  days[3] = Math.max(days[3], good + 1);
+  days[0] = AGAIN_DAYS;
+  return next.map((state, i) => ({ ...state, interval: days[i] }));
+}
+/**
+ * The card's new schedule after a rating (1 Again, 2 Hard, 3 Good, 4 Easy).
+ * @param {Record<string, any>} card
+ * @param {number} rating
+ */
+export function schedule(card, rating, now = Date.now()) {
+  const { stability, difficulty, interval } = outcomes(card, now)[rating - 1];
   return {
-    ease,
-    repetitions,
+    stability,
+    difficulty,
     interval,
-    due: now + Math.round(interval * 86400000),
-    lapses: card.lapses + (grade < 3 ? 1 : 0),
+    due: now + Math.round(interval * DAY),
+    repetitions: rating === 1 ? 0 : (card.repetitions || 0) + 1,
+    lapses: (card.lapses || 0) + (rating === 1 ? 1 : 0),
+    lastReview: now,
   };
 }
+/**
+ * The interval in days each rating would give the card.
+ * @param {Record<string, any>} card
+ */
+export function preview(card, now = Date.now()) {
+  const [again, hard, good, easy] = outcomes(card, now).map((x) => x.interval);
+  return { again, hard, good, easy };
+}
+const legacyRating = [1, 1, 1, 2, 3, 4];
+/** The 1-4 rating for an old 0-5 grade. */
+export const ratingFromGrade = (grade) => legacyRating[grade];
+/** The old 0-5 grade stored for a rating, so recall statistics keep working. */
+export const gradeFromRating = (rating) => [1, 3, 4, 5][rating - 1];
+/**
+ * Concepts a learner struggles with, most frequent first: topics of wrong
+ * answers in the last 10 quiz attempts and cards recently forgotten.
+ * @param {{ all: (sql: string, ...args: any[]) => Record<string, any>[] }} db
+ * @param {{ notebookId?: string, user?: string }} scope
+ * @returns {{ label: string, source: "quiz" | "cards", count: number, notebookId: string }[]}
+ */
+export function weaknesses(db, { notebookId, user }) {
+  const [filter, id] = notebookId
+    ? ["a.notebook_id=?", notebookId]
+    : ["n.user_id=?", user];
+  const found = new Map();
+  const add = (label, source, count, notebook) => {
+    const key = `${source}:${notebook}:${label}`;
+    found.set(key, {
+      label,
+      source,
+      count: (found.get(key)?.count || 0) + count,
+      notebookId: notebook,
+    });
+  };
+  for (const attempt of db.all(
+    `SELECT q.result,a.notebook_id FROM quiz_attempts q JOIN artifacts a ON a.id=q.artifact_id JOIN notebooks n ON n.id=a.notebook_id WHERE ${filter} ORDER BY q.created DESC,q.rowid DESC LIMIT 10`,
+    id,
+  ))
+    for (const item of JSON.parse(attempt.result).results)
+      if (!item.correct && item.topic)
+        add(item.topic, "quiz", 1, attempt.notebook_id);
+  for (const card of db.all(
+    `SELECT c.front,c.lapses,a.notebook_id FROM cards c JOIN artifacts a ON a.id=c.artifact_id JOIN notebooks n ON n.id=a.notebook_id WHERE ${filter} AND (c.last_rating=1 OR c.lapses>=2)`,
+    id,
+  ))
+    add(card.front.slice(0, 80), "cards", card.lapses || 1, card.notebook_id);
+  return [...found.values()].sort((a, b) => b.count - a.count).slice(0, 12);
+}
+/** Labels of a notebook's weak concepts, for adaptive generation. */
+export const weakConcepts = (db, notebookId) =>
+  [...new Set(weaknesses(db, { notebookId }).map((x) => x.label))];
 export function scoreQuiz(questions, answers) {
   const results = questions.map((q, i) => ({
     question: q.question,
@@ -242,14 +390,62 @@ const kindRules = {
   infographic:
     "Write a one-page visual summary: up to four stats whose value is a short figure or key term stated in the sources (use none if the sources state none), three to six sections of short points, and a one-sentence takeaway; do not claim generated images.",
 };
-/** The user message for a generated study tool. Label requests list the sources by number. */
-export function generationPrompt(input, labelSources = []) {
+const cardFocusRules = {
+  definitions: "Focus on definitions of key terms.",
+  concepts: "Focus on key concepts and how they connect.",
+  qa: "Use direct question-and-answer items.",
+  exam: "Write items like those likely to appear in an exam.",
+};
+/**
+ * The user message for a generated study tool. Label requests list the sources
+ * by number; `extra` carries the flashcard fronts a quiz should test and the
+ * weak concepts an adaptive difficulty should prioritise.
+ * @param {Record<string, any>} input
+ * @param {Record<string, any>[]} [labelSources]
+ * @param {{ deckFronts?: string[], weak?: string[] }} [extra]
+ */
+export function generationPrompt(input, labelSources = [], extra = {}) {
   if (input.kind === "labels")
     return `Label each source below with one short topic of one to three words, written in the response language. Give related sources the same topic and use at most six different topics. Sources: ${labelSources.map((s, i) => `${i + 1}. ${JSON.stringify(s.title)}`).join("; ")}. Return ONLY valid JSON in this exact structure: ${shapes.labels}, where source is the source number from this list.`;
   if (input.kind === "questions")
     return `Suggest three short questions a learner could ask next about these sources. Each must be answerable from the sources, cover a different idea, and be under 120 characters. Write them in the response language. Return ONLY valid JSON in this exact structure: ${shapes.questions}.`;
-  return `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}. Return ONLY valid JSON in this exact structure: ${shapes[input.kind]}. Cite each item using refs. Do not invent facts.${kindRules[input.kind] ? " " + kindRules[input.kind] : ""}`;
+  const cards = ["flashcards", "quiz"].includes(input.kind);
+  const shape =
+    input.kind === "flashcards" && input.explanations === false
+      ? shapes.flashcardsLean
+      : shapes[input.kind];
+  const notes = [
+    cards && cardFocusRules[input.cardFocus],
+    input.difficulty === "adaptive" &&
+      (extra.weak?.length
+        ? `Prioritise these concepts the learner finds hard: ${JSON.stringify(extra.weak)}.`
+        : "Use a balanced mix of easy, medium and hard items."),
+    extra.deckFronts?.length &&
+      `Test the concepts of these flashcards: ${JSON.stringify(extra.deckFronts)}.`,
+  ].filter(Boolean);
+  return `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}.${notes.length ? " " + notes.join(" ") : ""} Return ONLY valid JSON in this exact structure: ${shape}. Cite each item using refs. Do not invent facts.${kindRules[input.kind] ? " " + kindRules[input.kind] : ""}`;
 }
+/**
+ * Ask for the detailed explanation of one flashcard.
+ * @param {Record<string, any>} card
+ * @param {boolean} sources whether source excerpts are supplied
+ */
+export const explainPrompt = (card, sources) =>
+  `Explain this flashcard to a learner. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${card.explanation ? ` Existing note: ${JSON.stringify(card.explanation)}.` : ""} ${sources ? "Ground it in the source excerpts and cite them in refs." : "This notebook has no ready sources: answer from the card alone and use refs []."} why: why the answer is correct. detail: the reasoning, mechanism or background. simple: an easier version for a struggling student. example: a practical example. takeaway: one sentence to remember. followUp: one related flashcard, or null. Return ONLY valid JSON in this exact structure: ${shapes.explain}. Do not invent facts.`;
+/**
+ * System prompt for questions about one flashcard.
+ * @param {Record<string, any>} card
+ * @param {string} [takeaway] key takeaway of its cached detailed explanation
+ */
+export const askContext = (card, takeaway = "") =>
+  `The learner is studying this flashcard. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${card.explanation ? ` Note: ${JSON.stringify(card.explanation)}.` : ""}${takeaway ? ` Key takeaway: ${JSON.stringify(takeaway)}.` : ""} Answer their question about it in short Markdown, grounded in the excerpts, citing as [1].`;
+/**
+ * Ask for a differently worded version of one flashcard.
+ * @param {Record<string, any>} card
+ * @param {string} [instructions]
+ */
+export const rewritePrompt = (card, instructions = "") =>
+  `Rewrite this flashcard about the same concept in clearly different wording. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${instructions ? ` Extra instructions: ${JSON.stringify(instructions)}.` : ""} Return ONLY valid JSON in this exact structure: ${shapes.cardRewrite}. Cite using refs. Do not invent facts.`;
 export function parseStructured(raw, kind, maxCitation) {
   const parsed = JSON.parse(
     raw
