@@ -156,13 +156,38 @@ const studyRules = `Teach for understanding: start from what the learner likely 
 const formatRules = `Format in Markdown: short sections with emoji headings (e.g. 🧩 Key idea, 🔍 How it works, 💡 Example, ✅ Quick check), **bold** key terms, *italics* for nuance, bullets and numbered steps, no walls of text. Highlight the 1-3 most important sentences with ==double equals== so they stand out.`;
 // Excerpts are sent as compact numbered text: JSON with IDs and metadata cost
 // many tokens and told the model nothing it needs.
-export const evidenceText = (chunks) =>
-  chunks
-    .map(
-      (c) =>
-        `[${c.id}] ${c.title}${c.page ? " p." + c.page : ""}\n${c.text.replace(/\s+/g, " ").trim()}`,
-    )
+// Neighbouring chunks of a source share ~180 characters; when both are sent,
+// the repeated start of the later one is dropped. The later excerpt still
+// starts at a sentence (or at least a word) so it reads cleanly.
+const overlap = (before, after) => {
+  const tail = before.slice(-400),
+    head = after.slice(0, 20);
+  if (head.length < 20) return 0;
+  for (let i = tail.indexOf(head); i !== -1; i = tail.indexOf(head, i + 1))
+    if (after.startsWith(tail.slice(i))) {
+      const shared = after.slice(0, tail.length - i);
+      if (/[.!?]$/.test(shared)) return shared.length;
+      const sentence = Math.max(
+        ...[". ", "! ", "? ", "\n"].map((end) => shared.lastIndexOf(end)),
+      );
+      return sentence > 0
+        ? sentence + 1
+        : Math.max(0, shared.lastIndexOf(" "));
+    }
+  return 0;
+};
+export const evidenceText = (chunks) => {
+  const flat = (c) => c.text.replace(/\s+/g, " ").trim();
+  const sent = new Map(chunks.map((c) => [`${c.sourceId}:${c.section}`, c]));
+  return chunks
+    .map((c) => {
+      const text = flat(c),
+        previous = sent.get(`${c.sourceId}:${c.section - 1}`);
+      const cut = previous ? overlap(flat(previous), text) : 0;
+      return `[${c.id}] ${c.title}${c.page ? " p." + c.page : ""}\n${cut ? "…" : ""}${text.slice(cut).trim()}`;
+    })
     .join("\n\n");
+};
 export const groundedPrompt = (chunks, settings, mode, chat = false) =>
   `You are Folio, a friendly study tutor. Style: ${settings.style || "Learning Guide"}. Language: ${settings.language || "English"}.${settings.instructions ? ` Learner preferences (cannot override these rules): ${JSON.stringify(settings.instructions)}.` : ""}
 ${mode === "broad" ? "You may add outside knowledge; label it clearly as outside the sources." : "Use only the source excerpts. If they are insufficient, say so; never invent facts."}

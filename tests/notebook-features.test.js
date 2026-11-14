@@ -7,14 +7,14 @@ import { createApp } from "../server/app.js";
 import { fixtureProvider, sourceText } from "./fixtures.js";
 
 /** Starts an isolated app and returns cookie-keeping API clients. */
-async function start(port) {
+async function start(port, providerFactory = fixtureProvider) {
   const dir = await mkdtemp(join(tmpdir(), "folio-features-")),
     origin = "http://127.0.0.1:" + port;
   const app = await createApp({
     directory: dir,
     secretDirectory: join(dir, "keys"),
     origin,
-    providerFactory: fixtureProvider,
+    providerFactory,
   });
   await new Promise((resolve) => app.server.listen(port, "127.0.0.1", resolve));
   const client = () => ({
@@ -270,6 +270,78 @@ test("a learner rates an answer and can clear the rating", async () => {
       (await outsider.call("messages/" + id, "PATCH", { feedback: "up" }))
         .status,
       404,
+    );
+  } finally {
+    await stop();
+  }
+});
+
+test("Auto effort is resolved per task and generations reuse cached sources", async () => {
+  const requests = [];
+  const recording = (provider) => {
+    const base = fixtureProvider(provider);
+    return {
+      ...base,
+      streamChat(request) {
+        requests.push({ type: "chat", effort: request.effort });
+        return base.streamChat(request);
+      },
+      chat(request) {
+        requests.push({
+          type: "generate",
+          effort: request.effort,
+          cache: request.cache,
+        });
+        return base.chat(request);
+      },
+    };
+  };
+  const { client, stop } = await start(4498, recording);
+  try {
+    const { user, notebook, ai } = await studyNotebook(client);
+    const ask = async (message, effort) => {
+      const res = await fetch(
+        "http://127.0.0.1:4498/api/notebooks/" + notebook + "/chat",
+        {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:4498",
+            Cookie: user.cookie,
+            "X-CSRF-Token": user.csrf,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ...ai, message, effort }),
+        },
+      );
+      assert.equal(res.status, 200);
+      await res.text();
+    };
+    await ask("What are mitochondria?", "auto");
+    await ask("Why do cells need mitochondria?", "auto");
+    await ask("What are mitochondria?", "ultra");
+    await ask("What are mitochondria?", "low");
+    const quiz = await user.call("notebooks/" + notebook + "/generate", "POST", {
+      ...ai,
+      kind: "quiz",
+      difficulty: "advanced",
+      effort: "auto",
+    });
+    assert.equal(quiz.status, 201, JSON.stringify(quiz.data));
+    assert.deepEqual(requests, [
+      { type: "chat", effort: "light" },
+      { type: "chat", effort: "medium" },
+      { type: "chat", effort: "ultra" },
+      { type: "chat", effort: "light" },
+      { type: "generate", effort: "high", cache: true },
+    ]);
+    // A saved effort accepts the new levels.
+    assert.equal(
+      (
+        await user.call("notebooks/" + notebook, "PATCH", {
+          settings: { effort: "extra" },
+        })
+      ).status,
+      200,
     );
   } finally {
     await stop();

@@ -106,6 +106,33 @@ test("Codex bridge normalizes text and usage and keeps sessions ephemeral", asyn
   assert.equal(f.killed, true);
 });
 
+test("Codex gets the conversation as plain text and Folio's effort levels", async (t) => {
+  setEnv(t, "ALLOW_CODEX", "true");
+  setEnv(t, "NODE_ENV", "development");
+  const turn = async (model, effort, messages) => {
+    const f = fixture();
+    await f.adapter.chat({ model, system: "s", messages, effort });
+    return f.calls.find((c) => c.method === "turn/start").params;
+  };
+  const single = await turn("gpt-5.3-codex", "light", [
+    { role: "user", content: "What is ATP?" },
+  ]);
+  assert.equal(single.input[0].text, "What is ATP?");
+  assert.equal(single.effort, "low");
+  const multi = await turn("gpt-5.3-codex", "extra", [
+    { role: "user", content: "What is ATP?" },
+    { role: "assistant", content: "Energy [1]." },
+    { role: "user", content: "And ADP?" },
+  ]);
+  assert.equal(
+    multi.input[0].text,
+    "Learner: What is ATP?\n\nFolio: Energy [1].\n\nLearner: And ADP?",
+  );
+  assert.equal(multi.effort, "xhigh");
+  assert.equal((await turn("gpt-5", "ultra", [])).effort, "high");
+  assert.equal("effort" in (await turn("gpt-5", "auto", [])), false);
+});
+
 test("Codex bridge rejects missing ChatGPT sign-in and failed turns", async (t) => {
   setEnv(t, "ALLOW_CODEX", "true");
   setEnv(t, "NODE_ENV", "development");

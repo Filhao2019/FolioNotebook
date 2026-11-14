@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { chunkText, groundedPrompt, retrieve } from "../server/retrieval.js";
 import { catalog, createProvider, ollamaLibrary } from "../server/providers.js";
+import { generationPrompt } from "../server/learning.js";
 
 const para =
   "Cellular respiration converts glucose and oxygen into ATP, water and carbon dioxide in the mitochondria of the cell. ";
@@ -55,6 +56,58 @@ test("chat prompt teaches in study mode with highlighted key points", () => {
   assert.match(chat, /\*\*bold\*\*/);
   // Structured generations (JSON) do not carry the chat formatting rules.
   assert.doesNotMatch(groundedPrompt([], {}, "strict"), /==double equals==/);
+});
+
+test("text shared by neighbouring excerpts is sent only once", async () => {
+  const id = randomUUID();
+  const text = Array.from(
+    { length: 120 },
+    (_, i) => `Fact ${i} says enzyme ${i} binds substrate ${i}.`,
+  ).join(" ");
+  const parts = chunkText(text).map((t, i) => ({
+    id: randomUUID(),
+    source_id: id,
+    ordinal: i,
+    page: null,
+    text: t,
+    title: "Enzymes.txt",
+  }));
+  assert.ok(parts.length > 2, "the source spans several overlapping chunks");
+  const small = {
+    all: (sql) => (sql.includes("status='ready'") ? [{ id }] : parts),
+  };
+  const evidence = await retrieve(small, "nb", [id], "", null, true);
+  const system = groundedPrompt(evidence.chunks, {}, "strict");
+  // Every whole sentence arrives exactly once; an excerpt may still end on
+  // half a sentence that the next excerpt then starts in full.
+  for (let i = 0; i < 120; i++) {
+    const sentence = `Fact ${i} says enzyme ${i} binds substrate ${i}.`;
+    assert.equal(system.split(sentence).length - 1, 1, `${sentence} once`);
+  }
+  assert.ok(
+    system.length < text.length * 1.05 + 600,
+    "the overlap is not sent twice",
+  );
+});
+
+test("a generation prompt carries only the rules for its own kind", () => {
+  const flashcards = generationPrompt({
+    kind: "flashcards",
+    difficulty: "medium",
+    count: 10,
+    focus: "",
+  });
+  assert.match(flashcards, /Generate a flashcards/);
+  assert.match(flashcards, /Return ONLY valid JSON/);
+  assert.doesNotMatch(flashcards, /slide|two-host|infographic|mind map/i);
+  const slides = generationPrompt({
+    kind: "slides",
+    difficulty: "medium",
+    count: 8,
+    focus: "",
+  });
+  assert.match(slides, /speaker notes/);
+  assert.doesNotMatch(slides, /two-host/);
 });
 
 test("a message without searchable terms still gets a small evidence sample", async () => {

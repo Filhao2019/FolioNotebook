@@ -122,8 +122,17 @@ test("notebook workspace: home gallery, audio overview, menus, summary and chat 
     page.getByRole("button", { name: /Cells, energy and light/ }),
   ).toBeVisible();
 
-  // Effort toggle persists and is sent with chat requests.
-  await page.getByLabel("Effort", { exact: true }).selectOption("high");
+  // Effort bar: Auto plus five levels; the choice persists and is sent with chat.
+  const effortButton = page.getByRole("button", { name: /^Effort:/ });
+  await expect(effortButton).toHaveAccessibleName("Effort: Auto");
+  await effortButton.click();
+  const slider = page.getByRole("slider", { name: "Reasoning effort" });
+  await expect(slider).toBeVisible();
+  await expect(page.locator(".effort-pop .effort-title")).toHaveText("Auto");
+  await slider.press("ArrowRight");
+  await expect(page.locator(".effort-pop .effort-title")).toHaveText("High");
+  await slider.press("ArrowRight");
+  await expect(page.locator(".effort-pop .effort-title")).toHaveText("Extra");
   await expect
     .poll(() =>
       page.request
@@ -131,7 +140,31 @@ test("notebook workspace: home gallery, audio overview, menus, summary and chat 
         .then((r) => r.json())
         .then((d) => d.notebook.settings.effort),
     )
-    .toBe("high");
+    .toBe("extra");
+  await slider.press("End");
+  await expect(page.locator(".effort-pop .effort-title")).toHaveText("Ultra");
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+  await page.locator(".effort-pop").screenshot({
+    path: "screenshots/effort-bar-ultra-dark.png",
+  });
+  await page.evaluate(() => (document.documentElement.dataset.theme = "light"));
+  // The bolt hands the choice back to Folio; the slider takes it back again.
+  await page.getByRole("button", { name: "Let Folio choose" }).click();
+  await expect(page.locator(".effort-pop .effort-title")).toHaveText("Auto");
+  await expect(page.locator(".effort-pop .effort-detail")).toHaveText(
+    "fixture-text",
+  );
+  await expect(page.locator(".effort-pop .effort-hint")).toContainText(
+    "Folio picks the effort for each task",
+  );
+  await slider.press("ArrowRight");
+  await slider.press("ArrowRight");
+  await expect(page.locator(".effort-pop .effort-title")).toHaveText("Extra");
+  await page.locator(".effort-pop").screenshot({
+    path: "screenshots/effort-bar.png",
+  });
+  await page.keyboard.press("Escape");
+  await expect(slider).toBeHidden();
   const chatRequest = page.waitForRequest((r) => r.url().endsWith("/chat"));
   // Chat, follow-ups, pin as summary, then clear history.
   await page
@@ -143,8 +176,8 @@ test("notebook workspace: home gallery, audio overview, menus, summary and chat 
       "Mitochondria transfer energy into ATP during cellular respiration",
     ),
   ).toBeVisible();
-  expect((await chatRequest).postDataJSON().effort).toBe("high");
-  await expect(page.getByLabel("Effort", { exact: true })).toHaveValue("high");
+  expect((await chatRequest).postDataJSON().effort).toBe("extra");
+  await expect(effortButton).toHaveAccessibleName("Effort: Extra");
   await expect(
     page.getByRole("group", { name: "Suggested questions" }),
   ).toBeVisible();

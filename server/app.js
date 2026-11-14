@@ -21,13 +21,14 @@ import { validateUpload, createIngestor } from "./ingestion.js";
 import { fetchWebSource } from "./web-source.js";
 import { retrieve, groundedPrompt, validateCitations } from "./retrieval.js";
 import {
-  shapes,
+  generationPrompt,
   parseStructured,
   schedule,
   scoreQuiz,
   safeQuiz,
 } from "./learning.js";
 import { estimateCost } from "./cost.js";
+import { effortChoices, normalizeEffort, resolveEffort } from "./effort.js";
 import { notebookAccess, requireAccess, socialRoutes } from "./social.js";
 import { resolveActiveAi, rememberChoice } from "./ai-choice.js";
 import { buildGraph } from "./graph.js";
@@ -35,6 +36,10 @@ import { buildGraph } from "./graph.js";
 const root = fileURLToPath(new URL("../public/", import.meta.url));
 const idSchema = z.string().uuid();
 const short = z.string().trim().min(1).max(200);
+// Auto plus five levels; "low" from Folio 0.3 is read as Light.
+const effortSchema = z
+  .enum([...effortChoices, "low"])
+  .transform(normalizeEffort);
 const settingsSchema = z.object({
   style: z
     .enum([
@@ -57,7 +62,7 @@ const settingsSchema = z.object({
   embeddingConnectionId: idSchema.nullable().optional(),
   embeddingModel: z.string().max(200).nullable().optional(),
   emoji: z.string().max(16).optional(),
-  effort: z.enum(["auto", "low", "medium", "high"]).optional(),
+  effort: effortSchema.optional(),
 });
 const aiSchema = z.object({
   connectionId: idSchema,
@@ -68,7 +73,7 @@ const aiSchema = z.object({
     .max(50)
     .transform((a) => [...new Set(a)]),
   mode: z.enum(["strict", "broad"]).default("strict"),
-  effort: z.enum(["auto", "low", "medium", "high"]).default("auto"),
+  effort: effortSchema.default("auto"),
 });
 const unpack = (row) =>
   row && { ...row, settings: JSON.parse(row.settings || "{}") };
@@ -1266,18 +1271,16 @@ export async function createApp(options = {}) {
                     ...input.sourceIds,
                   )
                 : [];
-            const prompt =
-              input.kind === "labels"
-                ? `Label each source below with one short topic of one to three words, written in the response language. Give related sources the same topic and use at most six different topics. Sources: ${labelSources.map((s, i) => `${i + 1}. ${JSON.stringify(s.title)}`).join("; ")}. Return ONLY valid JSON in this exact structure: ${shapes.labels}, where source is the source number from this list.`
-                : input.kind === "questions"
-                  ? `Suggest three short questions a learner could ask next about these sources. Each must be answerable from the sources, cover a different idea, and be under 120 characters. Write them in the response language. Return ONLY valid JSON in this exact structure: ${shapes.questions}.`
-                  : `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}. Return ONLY valid JSON in this exact structure: ${shapes[input.kind]}. Cite each item using refs. Do not invent facts. For quizzes, answer is a zero-based option index. For mind maps, use one root, unique IDs, no cycles. For slides, create a clear teaching sequence with concise bullet points, speaker notes, and source refs on each slide. Produce text slides only; do not claim generated images or audio. For audio, write a lively, natural two-host conversation (A explains, B asks and connects ideas) about the sources, 14 to 40 lines, each line one or two spoken sentences with no markdown; set count as a rough guide to the number of key ideas covered. For infographics, write a one-page visual summary: up to four stats whose value is a short figure or key term stated in the sources (use none if the sources state none), three to six sections of short points, and a one-sentence takeaway; do not claim generated images.`;
+            const prompt = generationPrompt(input, labelSources);
             const result = await adapter.chat({
               model: input.model,
-              effort: input.effort,
+              effort: resolveEffort(input.effort, input),
               system,
               messages: [{ role: "user", content: prompt }],
               maxTokens: 7000,
+              // Every study tool from the same sources shares this system
+              // prompt, so a second tool reads it from the provider's cache.
+              cache: true,
               signal: abort.signal,
             });
             const content = parseStructured(
@@ -1448,7 +1451,10 @@ export async function createApp(options = {}) {
             });
             for await (const part of adapter.streamChat({
               model: input.model,
-              effort: input.effort,
+              effort: resolveEffort(input.effort, {
+                kind: "chat",
+                message: input.message,
+              }),
               system,
               messages: history,
               signal: abort.signal,

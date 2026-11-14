@@ -398,12 +398,17 @@ const pt = {
   "Knowledge graph. Drag to move, scroll to zoom, select an item to see its connections.":
     "Grafo de conhecimento. Arraste para mover, role para ampliar e selecione um item para ver suas conexões.",
   Effort: "Esforço",
-  "Auto effort": "Esforço automático",
-  "Low effort": "Esforço baixo",
-  "Medium effort": "Esforço médio",
-  "High effort": "Esforço alto",
-  "How much the model reasons before answering. Applies to reasoning models (for example GPT-5/o-series, Claude with thinking, Gemini 2.5+, OpenRouter, Codex); others ignore it. Higher effort is slower and may cost more.":
-    "Quanto o modelo raciocina antes de responder. Vale para modelos de raciocínio (por exemplo GPT-5/série o, Claude com raciocínio, Gemini 2.5+, OpenRouter, Codex); os demais ignoram. Mais esforço é mais lento e pode custar mais.",
+  "Reasoning effort": "Esforço de raciocínio",
+  "Folio picks the effort for each task": "O Folio escolhe o esforço para cada tarefa",
+  "Quick answers, fewest tokens": "Respostas rápidas, menos tokens",
+  "Balanced depth and cost": "Equilíbrio entre profundidade e custo",
+  "Deeper reasoning": "Raciocínio mais profundo",
+  "Very thorough, slower": "Muito detalhado, mais lento",
+  "Maximum reasoning, most tokens": "Raciocínio máximo, mais tokens",
+  "Let Folio choose": "Deixar o Folio escolher",
+  "Reset to recommended": "Voltar ao recomendado",
+  "Applies to reasoning models; others ignore it.":
+    "Vale para modelos de raciocínio; os demais ignoram.",
 };
 const t = (text) => (state.locale === "pt-BR" ? pt[text] || text : text);
 const paths = {
@@ -449,6 +454,7 @@ const paths = {
     "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20 M8 14a5 5 0 0 0 8 0 M9 9h.01 M15 9h.01",
   pin: "M9 3h6l-1 6 4 4H6l4-4z M12 13v8",
   refresh: "M20 11a8 8 0 1 0-2.3 5.7 M20 4v7h-7",
+  bolt: "M13 2 4 14h7l-1 8 9-12h-7z",
   wand: "M4 20 15 9 M14 4v3 M18 6l-2 2 M20 10h-3 M11 6H8 M15 9l-1-1",
   users:
     "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M2 21v-1a6 6 0 0 1 12 0v1 M16 3.5a4 4 0 0 1 0 7 M22 21v-1a6 6 0 0 0-4-5.6",
@@ -1505,31 +1511,179 @@ function modelSelect(onChange, selected = activeAi() || {}) {
 async function saveModel(connectionId, model) {
   await setActiveAi(connectionId, model);
 }
+// Reasoning effort: Auto plus five levels on a slider.
+// Level names carry their own Portuguese: "Light" already means the theme.
 const effortLevels = [
-  ["auto", "Auto effort"],
-  ["low", "Low effort"],
-  ["medium", "Medium effort"],
-  ["high", "High effort"],
+  ["light", ["Light", "Leve"], "Quick answers, fewest tokens"],
+  ["medium", ["Medium", "Médio"], "Balanced depth and cost"],
+  ["high", ["High", "Alto"], "Deeper reasoning"],
+  ["extra", ["Extra", "Extra"], "Very thorough, slower"],
+  ["ultra", ["Ultra", "Ultra"], "Maximum reasoning, most tokens"],
 ];
-function effortSelect(selected, onChange) {
-  const select = el(
-    "select",
+const recommendedEffort = 1;
+const inLocale = ([en, pt]) => (state.locale === "pt-BR" ? pt : en);
+// Folio 0.3 saved "low"; it is Light now.
+const effortIndex = (value) =>
+  effortLevels.findIndex(([v]) => v === (value === "low" ? "light" : value));
+/** Short name for the composer chip; the card adds "(Recommended)" to Medium. */
+const effortShort = (value) => {
+  const i = effortIndex(value);
+  return i < 0 ? inLocale(["Auto", "Automático"]) : inLocale(effortLevels[i][1]);
+};
+const effortName = (value) =>
+  effortShort(value) +
+  (effortIndex(value) === recommendedEffort
+    ? inLocale([" (Recommended)", " (Recomendado)"])
+    : "");
+/** The effort card: Auto toggle, level name, model, reset and a five-stop slider. */
+function effortCard(selected, onChange, model) {
+  let value = effortIndex(selected) < 0 ? "auto" : effortLevels[effortIndex(selected)][0];
+  const title = el("strong", { class: "effort-title" });
+  const detail = el("span", { class: "effort-detail" });
+  const hint = el("p", { class: "effort-hint" });
+  const range = el("input", {
+    type: "range",
+    min: 0,
+    max: effortLevels.length - 1,
+    step: 1,
+    class: "effort-range",
+    "aria-label": t("Reasoning effort"),
+  });
+  const dots = el(
+    "div",
+    { class: "effort-dots", "aria-hidden": "true" },
+    effortLevels.map(() => el("span")),
+  );
+  const track = el(
+    "div",
+    { class: "effort-track" },
+    el("div", { class: "effort-fill" }),
+    dots,
+    range,
+  );
+  const auto = el(
+    "button",
     {
-      "aria-label": t("Effort"),
-      title: t(
-        "How much the model reasons before answering. Applies to reasoning models (for example GPT-5/o-series, Claude with thinking, Gemini 2.5+, OpenRouter, Codex); others ignore it. Higher effort is slower and may cost more.",
-      ),
-      onChange: () => onChange(select.value),
+      type: "button",
+      class: "effort-auto",
+      title: t("Let Folio choose"),
+      "aria-label": t("Let Folio choose"),
+      onClick: () => set(value === "auto" ? effortLevels[recommendedEffort][0] : "auto"),
     },
-    effortLevels.map(([value, label]) =>
-      el(
-        "option",
-        { value, selected: value === (selected || "auto") },
-        t(label),
-      ),
+    icon("bolt"),
+  );
+  const reset = el(
+    "button",
+    {
+      type: "button",
+      class: "effort-reset",
+      title: t("Reset to recommended"),
+      "aria-label": t("Reset to recommended"),
+      onClick: () => set(effortLevels[recommendedEffort][0]),
+    },
+    icon("refresh"),
+  );
+  const card = el(
+    "div",
+    { class: "effort-card" },
+    el(
+      "div",
+      { class: "effort-head" },
+      auto,
+      el("div", { class: "effort-label" }, title, detail),
+      reset,
+    ),
+    track,
+    hint,
+  );
+  const paint = () => {
+    const i = effortIndex(value),
+      shown = i < 0 ? recommendedEffort : i;
+    range.value = String(shown);
+    range.setAttribute("aria-valuetext", effortName(value));
+    card.style.setProperty("--effort", String(shown / (effortLevels.length - 1)));
+    card.dataset.level = value;
+    [...dots.children].forEach((dot, k) => dot.classList.toggle("on", k <= shown));
+    auto.setAttribute("aria-pressed", String(value === "auto"));
+    title.textContent = effortName(value);
+    detail.textContent = model || "";
+    detail.hidden = !model;
+    hint.textContent =
+      t(i < 0 ? "Folio picks the effort for each task" : effortLevels[i][2]) +
+      " · " +
+      t("Applies to reasoning models; others ignore it.");
+  };
+  const set = (next) => {
+    if (next === value) return;
+    value = next;
+    paint();
+    onChange(value);
+  };
+  // Dragging repaints; the choice is saved once the thumb is released.
+  range.addEventListener("input", () => {
+    value = effortLevels[Number(range.value)][0];
+    paint();
+  });
+  range.addEventListener("change", () => onChange(value));
+  paint();
+  return card;
+}
+/** Composer chip that opens the effort card above it. */
+function effortControl(selected, onChange, model) {
+  const label = el("span");
+  const chip = el(
+    "button",
+    {
+      type: "button",
+      class: "effort-chip",
+      "aria-haspopup": "true",
+      "aria-expanded": "false",
+      onClick: () => (pop.hidden ? open() : close()),
+    },
+    icon("bolt"),
+    label,
+  );
+  const show = (value) => {
+    label.textContent = effortShort(value);
+    chip.setAttribute("aria-label", t("Effort") + ": " + effortShort(value));
+  };
+  const pop = el(
+    "div",
+    { class: "effort-pop", hidden: true },
+    effortCard(
+      selected,
+      (value) => {
+        show(value);
+        onChange(value);
+      },
+      model,
     ),
   );
-  return select;
+  const wrap = el("div", { class: "effort-control" }, chip, pop);
+  const outside = (e) => {
+    if (!wrap.contains(e.target)) close();
+  };
+  const escape = (e) => {
+    if (e.key === "Escape") {
+      close();
+      chip.focus();
+    }
+  };
+  function open() {
+    pop.hidden = false;
+    chip.setAttribute("aria-expanded", "true");
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    pop.querySelector(".effort-range").focus();
+  }
+  function close() {
+    pop.hidden = true;
+    chip.setAttribute("aria-expanded", "false");
+    document.removeEventListener("pointerdown", outside);
+    document.removeEventListener("keydown", escape);
+  }
+  show(selected);
+  return wrap;
 }
 async function saveEffort(effort, notebookId = state.activeNotebook) {
   await api("notebooks/" + notebookId, {
@@ -3040,8 +3194,10 @@ function conversationView() {
       }
     });
   });
-  const effort = effortSelect(w.notebook.settings.effort, (value) =>
-    action(() => saveEffort(value, w.notebook.id)),
+  const effort = effortControl(
+    w.notebook.settings.effort,
+    (value) => action(() => saveEffort(value, w.notebook.id)),
+    activeAi()?.model,
   );
   const send = el(
     "button",
@@ -4494,11 +4650,18 @@ function generateModal(kind, options = {}) {
       },
     },
     field("Choose a model", model),
-    field(
-      "Effort",
-      effortSelect(selectedModel.effort, (value) => {
-        selectedModel.effort = value;
-      }),
+    // A div, not a label: a label would pass clicks on its text to the Auto button.
+    el(
+      "div",
+      { class: "effort-field" },
+      el("span", {}, t("Effort")),
+      effortCard(
+        selectedModel.effort,
+        (value) => {
+          selectedModel.effort = value;
+        },
+        selectedModel.model,
+      ),
     ),
     kind === "guide" ? field("Report format", format) : null,
     kind === "audio" ? field("Audio format", audioFormat) : null,

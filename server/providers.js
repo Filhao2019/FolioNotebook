@@ -1,5 +1,14 @@
 import { AppError, assert } from "./security.js";
 import { createCodexProvider } from "./codex-provider.js";
+import {
+  adaptiveClaude,
+  claudeEffort,
+  normalizeEffort,
+  openaiEffort,
+  thinkingBudget,
+  threeStepEffort,
+  twoStepEffort,
+} from "./effort.js";
 
 export const catalog = {
   codex: {
@@ -87,21 +96,38 @@ export const ollamaLibrary = [
   ["mxbai-embed-large", "mxbai Embed Large (embeddings)"],
 ].map(([id, name]) => ({ id, name }));
 // Reasoning effort is sent only to models known to accept it; "auto" keeps
-// each provider's own default and never adds a parameter.
-const thinkingBudget = { low: 2048, medium: 8192, high: 16384 };
+// each provider's own default and never adds a parameter (Folio resolves Auto
+// to a level before calling a provider).
 export function effortFor(protocol, providerId, model, effort) {
-  if (!effort || effort === "auto") return null;
+  const level = normalizeEffort(effort);
+  if (level === "auto") return null;
   const id = String(model).toLowerCase();
-  const reasoning =
-    protocol === "responses"
-      ? /^(o\d|gpt-5)/.test(id)
-      : protocol === "anthropic"
-        ? !/claude-(instant|2|3-(haiku|sonnet|opus|5))/.test(id)
-        : protocol === "gemini"
-          ? /gemini-(2\.5|[3-9])/.test(id)
-          : providerId === "openrouter" ||
-            (providerId === "xai" && /grok-3-mini/.test(id));
-  return reasoning ? { effort, budget: thinkingBudget[effort] } : null;
+  const budget = thinkingBudget[level];
+  if (protocol === "responses")
+    return /^(o\d|gpt-([5-9]))/.test(id)
+      ? { budget, effort: openaiEffort(id, level) }
+      : null;
+  if (protocol === "anthropic") {
+    if (/claude-(instant|2|3-(haiku|sonnet|opus|5))/.test(id)) return null;
+    // Claude 4.6 and later reject a thinking budget: adaptive thinking + effort.
+    if (adaptiveClaude(id))
+      return { budget, effort: claudeEffort(id, level), adaptive: true };
+    // Older thinking models; Opus 4 and 4.1 allow only 32K output in total.
+    return {
+      budget: /claude-opus-4(-1)?(-\d{8})?$/.test(id)
+        ? Math.min(budget, 24000)
+        : budget,
+    };
+  }
+  if (protocol === "gemini")
+    return /gemini-(2\.5|[3-9])/.test(id)
+      ? { budget: Math.min(budget, /flash/.test(id) ? 24576 : 32768) }
+      : null;
+  if (providerId === "openrouter")
+    return { budget, effort: threeStepEffort(level) };
+  if (providerId === "xai" && /grok-3-mini/.test(id))
+    return { budget, effort: twoStepEffort(level) };
+  return null;
 }
 export async function* sseEvents(body) {
   assert(body, 502, "Provider returned an empty stream.");
@@ -262,6 +288,9 @@ export function createProvider(providerId, key, options = {}) {
       signal,
       maxTokens = 4000,
       effort = "auto",
+      // Cache the system prompt (Claude only; other providers cache repeated
+      // prefixes on their own). Worth it when the same sources are sent again.
+      cache = false,
     }) {
       const reasoning = effortFor(config.protocol, providerId, model, effort);
       let path, body;
@@ -280,13 +309,31 @@ export function createProvider(providerId, key, options = {}) {
         path = "/messages";
         body = {
           model,
-          system,
+          system: cache
+            ? [
+                {
+                  type: "text",
+                  text: system,
+                  cache_control: { type: "ephemeral" },
+                },
+              ]
+            : system,
           messages,
           max_tokens: maxTokens + (reasoning?.budget || 0),
           stream: true,
-          ...(reasoning
-            ? { thinking: { type: "enabled", budget_tokens: reasoning.budget } }
-            : {}),
+          ...(reasoning?.adaptive
+            ? {
+                thinking: { type: "adaptive" },
+                output_config: { effort: reasoning.effort },
+              }
+            : reasoning
+              ? {
+                  thinking: {
+                    type: "enabled",
+                    budget_tokens: reasoning.budget,
+                  },
+                }
+              : {}),
         };
       } else if (config.protocol === "gemini") {
         path = `/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
@@ -316,10 +363,7 @@ export function createProvider(providerId, key, options = {}) {
           ...(reasoning
             ? providerId === "openrouter"
               ? { reasoning: { effort: reasoning.effort } }
-              : {
-                  reasoning_effort:
-                    reasoning.effort === "high" ? "high" : "low",
-                }
+              : { reasoning_effort: reasoning.effort }
             : {}),
           ...(config.protocol === "ollama"
             ? {}
@@ -366,11 +410,12 @@ export function createProvider(providerId, key, options = {}) {
                 usage.prompt_tokens ||
                 usage.promptTokenCount ||
                 0,
+              // Gemini reports thinking tokens apart from the answer; both are billed.
               output:
-                usage.output_tokens ||
-                usage.completion_tokens ||
-                usage.candidatesTokenCount ||
-                0,
+                (usage.output_tokens ||
+                  usage.completion_tokens ||
+                  usage.candidatesTokenCount ||
+                  0) + (usage.thoughtsTokenCount || 0),
             },
           };
         if (

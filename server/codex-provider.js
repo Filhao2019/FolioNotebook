@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { AppError, assert } from "./security.js";
+import { normalizeEffort, openaiEffort } from "./effort.js";
 
 // Auth stays inside the installed Codex CLI. Folio never reads its token files.
 export function codexEnabled() {
@@ -141,6 +142,14 @@ class CodexClient {
   }
 }
 
+// Plain text costs far fewer tokens than the same turns escaped inside JSON.
+const transcript = (messages) =>
+  messages.length === 1
+    ? messages[0].content
+    : messages
+        .map((m) => `${m.role === "assistant" ? "Folio" : "Learner"}: ${m.content}`)
+        .join("\n\n");
+
 export function createCodexProvider(options = {}) {
   const makeClient = (signal) => new CodexClient(signal, options.spawnProcess);
   const adapter = {
@@ -228,12 +237,11 @@ export function createCodexProvider(options = {}) {
           config: codexOverrides,
         });
         const threadId = result.thread.id;
+        const level = normalizeEffort(effort);
         await client.rpc("turn/start", {
           threadId,
-          input: [
-            { type: "text", text: JSON.stringify({ conversation: messages }) },
-          ],
-          ...(effort && effort !== "auto" ? { effort } : {}),
+          input: [{ type: "text", text: transcript(messages) }],
+          ...(level === "auto" ? {} : { effort: openaiEffort(model, level) }),
         });
         let length = 0;
         for (;;) {

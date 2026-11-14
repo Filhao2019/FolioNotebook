@@ -147,40 +147,144 @@ test("OpenRouter validates the authenticated key endpoint before public model di
   assert.equal(models[0].context, 1000);
 });
 
+async function sentBody(provider, request) {
+  let sent;
+  const adapter = createProvider(provider, "key", {
+    fetcher: async (_url, init) => {
+      sent = JSON.parse(init.body);
+      return stream([
+        { type: "response.completed", choices: [{ finish_reason: "stop" }] },
+      ]);
+    },
+  });
+  await adapter
+    .chat({ system: "s", messages: [], ...request })
+    .catch(() => {});
+  return sent;
+}
+
 test("reasoning effort is sent only to models that accept it", async () => {
   const cases = [
     ["openai", "gpt-5", "high", (b) => b.reasoning?.effort === "high"],
+    ["openai", "gpt-5", "light", (b) => b.reasoning?.effort === "low"],
+    ["openai", "gpt-5", "low", (b) => b.reasoning?.effort === "low"],
+    ["openai", "gpt-5", "extra", (b) => b.reasoning?.effort === "high"],
+    ["openai", "gpt-5.2", "ultra", (b) => b.reasoning?.effort === "xhigh"],
     ["openai", "gpt-4o", "high", (b) => !("reasoning" in b)],
+    // Claude 4.6 and later reject a thinking budget; they take adaptive
+    // thinking plus an effort level.
+    [
+      "anthropic",
+      "claude-sonnet-5-5",
+      "high",
+      (b) =>
+        b.thinking?.type === "adaptive" &&
+        b.output_config?.effort === "high" &&
+        !("budget_tokens" in b.thinking),
+    ],
+    [
+      "anthropic",
+      "claude-opus-5-5",
+      "light",
+      (b) => b.output_config?.effort === "low",
+    ],
+    [
+      "anthropic",
+      "claude-opus-4-8",
+      "extra",
+      (b) => b.output_config?.effort === "xhigh",
+    ],
+    [
+      "anthropic",
+      "claude-opus-4-6",
+      "extra",
+      (b) => b.output_config?.effort === "high",
+    ],
+    [
+      "anthropic",
+      "claude-fable-5-2",
+      "ultra",
+      (b) => b.output_config?.effort === "max",
+    ],
     [
       "anthropic",
       "claude-sonnet-4-5",
       "medium",
-      (b) => b.thinking?.budget_tokens === 8192 && b.max_tokens === 4000 + 8192,
+      (b) =>
+        b.thinking?.type === "enabled" &&
+        b.thinking.budget_tokens === 4096 &&
+        b.max_tokens === 4000 + 4096,
+    ],
+    [
+      "anthropic",
+      "claude-sonnet-4-5",
+      "ultra",
+      (b) => b.thinking?.budget_tokens === 32000,
+    ],
+    // Opus 4.1 allows 32K output in total, so its budget stops lower.
+    [
+      "anthropic",
+      "claude-opus-4-1",
+      "ultra",
+      (b) => b.thinking?.budget_tokens === 24000,
     ],
     ["anthropic", "claude-3-5-haiku", "high", (b) => !("thinking" in b)],
     [
       "gemini",
       "gemini-2.5-pro",
-      "low",
-      (b) => b.generationConfig.thinkingConfig?.thinkingBudget === 2048,
+      "light",
+      (b) => b.generationConfig.thinkingConfig?.thinkingBudget === 1024,
     ],
-    ["openrouter", "any/model", "low", (b) => b.reasoning?.effort === "low"],
+    // Flash models accept at most 24,576 thinking tokens.
+    [
+      "gemini",
+      "gemini-2.5-flash",
+      "ultra",
+      (b) => b.generationConfig.thinkingConfig?.thinkingBudget === 24576,
+    ],
+    ["openrouter", "any/model", "light", (b) => b.reasoning?.effort === "low"],
+    ["openrouter", "any/model", "ultra", (b) => b.reasoning?.effort === "high"],
     ["deepseek", "deepseek-chat", "high", (b) => !("reasoning" in b)],
     ["openai", "gpt-5", "auto", (b) => !("reasoning" in b)],
   ];
   for (const [provider, model, effort, check] of cases) {
-    let sent;
-    const adapter = createProvider(provider, "key", {
-      fetcher: async (_url, init) => {
-        sent = JSON.parse(init.body);
-        return stream([
-          { type: "response.completed", choices: [{ finish_reason: "stop" }] },
-        ]);
-      },
-    });
-    await adapter
-      .chat({ model, system: "s", messages: [], effort })
-      .catch(() => {});
+    const sent = await sentBody(provider, { model, effort });
     assert.ok(check(sent), `${provider} ${model} ${effort}`);
   }
+});
+
+test("a cached request marks the Claude system prompt for prompt caching", async () => {
+  const cached = await sentBody("anthropic", {
+    model: "claude-sonnet-5-5",
+    cache: true,
+  });
+  assert.deepEqual(cached.system, [
+    { type: "text", text: "s", cache_control: { type: "ephemeral" } },
+  ]);
+  const plain = await sentBody("anthropic", { model: "claude-sonnet-5-5" });
+  assert.equal(plain.system, "s");
+});
+
+test("Gemini thinking tokens count as output", async () => {
+  const adapter = createProvider("gemini", "key", {
+    fetcher: async () =>
+      stream([
+        {
+          candidates: [
+            { content: { parts: [{ text: "ok" }] }, finishReason: "STOP" },
+          ],
+          usageMetadata: {
+            promptTokenCount: 10,
+            candidatesTokenCount: 5,
+            thoughtsTokenCount: 40,
+          },
+        },
+      ]),
+  });
+  const result = await adapter.chat({
+    model: "gemini-2.5-flash",
+    system: "s",
+    messages: [],
+  });
+  assert.deepEqual(result.usage, { input: 10, output: 45 });
 });

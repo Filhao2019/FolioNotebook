@@ -230,6 +230,26 @@ export function safeQuiz(content) {
     })),
   };
 }
+// Each kind's own rules; sending every kind's rules on every request cost
+// tokens and told the model nothing it needed.
+const kindRules = {
+  quiz: "Answer is a zero-based option index.",
+  mindmap: "Use one root, unique IDs, no cycles.",
+  slides:
+    "Create a clear teaching sequence with concise bullet points, speaker notes, and source refs on each slide. Produce text slides only; do not claim generated images or audio.",
+  audio:
+    "Write a lively, natural two-host conversation (A explains, B asks and connects ideas) about the sources, 14 to 40 lines, each line one or two spoken sentences with no markdown; set count as a rough guide to the number of key ideas covered.",
+  infographic:
+    "Write a one-page visual summary: up to four stats whose value is a short figure or key term stated in the sources (use none if the sources state none), three to six sections of short points, and a one-sentence takeaway; do not claim generated images.",
+};
+/** The user message for a generated study tool. Label requests list the sources by number. */
+export function generationPrompt(input, labelSources = []) {
+  if (input.kind === "labels")
+    return `Label each source below with one short topic of one to three words, written in the response language. Give related sources the same topic and use at most six different topics. Sources: ${labelSources.map((s, i) => `${i + 1}. ${JSON.stringify(s.title)}`).join("; ")}. Return ONLY valid JSON in this exact structure: ${shapes.labels}, where source is the source number from this list.`;
+  if (input.kind === "questions")
+    return `Suggest three short questions a learner could ask next about these sources. Each must be answerable from the sources, cover a different idea, and be under 120 characters. Write them in the response language. Return ONLY valid JSON in this exact structure: ${shapes.questions}.`;
+  return `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}. Return ONLY valid JSON in this exact structure: ${shapes[input.kind]}. Cite each item using refs. Do not invent facts.${kindRules[input.kind] ? " " + kindRules[input.kind] : ""}`;
+}
 export function parseStructured(raw, kind, maxCitation) {
   const parsed = JSON.parse(
     raw
