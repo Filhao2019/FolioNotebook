@@ -61,7 +61,15 @@ export function fixtureProvider(provider) {
     async chat(request) {
       const prompt = request.messages.at(-1).content;
       let data;
-      if (prompt.includes("Generate a flashcards"))
+      if (prompt.includes("Suggest three short questions"))
+        data = {
+          questions: [
+            "What do mitochondria do?",
+            "Where is DNA stored in a cell?",
+            "How do plant cells capture light?",
+          ],
+        };
+      else if (prompt.includes("Generate a flashcards"))
         data = {
           title: "Cell recall",
           cards: [

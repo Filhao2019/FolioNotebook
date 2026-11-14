@@ -3,6 +3,9 @@ import { z } from "zod";
 const refs = z.array(z.number().int().positive()).max(30).default([]);
 const text = z.string().min(1).max(12000);
 export const schemas = {
+  questions: z.object({
+    questions: z.array(z.string().trim().min(5).max(200)).min(1).max(5),
+  }),
   audio: z.object({
     title: text,
     summary: z.string().max(2000).default(""),
@@ -120,6 +123,7 @@ export const schemas = {
     ),
 };
 export const shapes = {
+  questions: '{"questions":["...","...","..."]}',
   audio:
     '{"title":"...","summary":"one-sentence description","lines":[{"speaker":"A","text":"...","refs":[1]},{"speaker":"B","text":"...","refs":[1]}]}',
   slides:

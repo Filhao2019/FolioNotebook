@@ -18,6 +18,7 @@ import {
 import { catalog, createProvider } from "./providers.js";
 import { codexEnabled } from "./codex-provider.js";
 import { validateUpload, createIngestor } from "./ingestion.js";
+import { fetchWebSource } from "./web-source.js";
 import { retrieve, groundedPrompt, validateCitations } from "./retrieval.js";
 import {
   shapes,
@@ -29,6 +30,7 @@ import {
 import { estimateCost } from "./cost.js";
 import { notebookAccess, requireAccess, socialRoutes } from "./social.js";
 import { resolveActiveAi, rememberChoice } from "./ai-choice.js";
+import { buildGraph } from "./graph.js";
 
 const root = fileURLToPath(new URL("../public/", import.meta.url));
 const idSchema = z.string().uuid();
@@ -106,6 +108,7 @@ export async function createApp(options = {}) {
     options.scanner || process.env.SCANNER_COMMAND,
   );
   const providerFactory = options.providerFactory || createProvider;
+  const fetchUrl = options.fetchWebSource || fetchWebSource;
   const limiter = new RateLimiter(),
     activeAi = new Map();
   const audit = (user, event, resource = "") =>
@@ -689,6 +692,17 @@ export async function createApp(options = {}) {
         return res.end();
       }
     }
+    if (path[0] === "graph" && path.length === 1 && method === "GET")
+      return json(
+        res,
+        buildGraph(
+          db,
+          db.all(
+            "SELECT id,title FROM notebooks WHERE user_id=? ORDER BY updated DESC",
+            user,
+          ),
+        ),
+      );
     if (path[0] === "notebooks") {
       if (path.length === 1 && method === "GET")
         return json(
@@ -804,6 +818,8 @@ export async function createApp(options = {}) {
         audit(user, "chat_cleared", notebook.id);
         return json(res, { ok: true });
       }
+      if (path[2] === "graph" && path.length === 3 && method === "GET")
+        return json(res, buildGraph(db, [notebook]));
       if (path[2] === "export" && method === "GET") {
         const data = {
           version: 1,
@@ -857,15 +873,24 @@ export async function createApp(options = {}) {
         );
         limiter.take(`upload:${user}`, 10);
         const input = z
-          .object({ name: short, base64: z.string().max(14_000_000) })
+          .object({
+            name: short.optional(),
+            base64: z.string().max(14_000_000).optional(),
+            url: z.string().trim().min(1).max(2000).optional(),
+          })
           .parse(await body(req));
         assert(
-          /^[A-Za-z0-9+/]*={0,2}$/.test(input.base64),
+          input.url
+            ? input.base64 === undefined
+            : input.name && input.base64 !== undefined,
+          400,
+          "Send either a file (name and base64) or a web address (url).",
+        );
+        assert(
+          input.url || /^[A-Za-z0-9+/]*={0,2}$/.test(input.base64),
           400,
           "Invalid file encoding.",
         );
-        const buffer = Buffer.from(input.base64, "base64"),
-          format = validateUpload(input.name, buffer);
         assert(
           db.get(
             "SELECT COUNT(*) AS count FROM sources WHERE notebook_id=?",
@@ -874,6 +899,13 @@ export async function createApp(options = {}) {
           400,
           "Source limit reached (50).",
         );
+        // Web addresses are fetched server-side (public hosts only) and stored like an upload.
+        const fetched = input.url ? await fetchUrl(input.url) : null;
+        if (fetched) input.name = fetched.name;
+        const buffer = fetched
+            ? fetched.buffer
+            : Buffer.from(input.base64, "base64"),
+          format = validateUpload(input.name, buffer);
         const count = db.get(
           "SELECT COUNT(*) AS count FROM sources s JOIN notebooks n ON n.id=s.notebook_id WHERE n.user_id=?",
           user,
@@ -1020,6 +1052,7 @@ export async function createApp(options = {}) {
                 "table",
                 "slides",
                 "audio",
+                "questions",
               ])
               .optional(),
             count: z.number().int().min(1).max(30).default(8),
@@ -1100,7 +1133,10 @@ export async function createApp(options = {}) {
               400,
               "No source text is available.",
             );
-            const prompt = `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}. Return ONLY valid JSON in this exact structure: ${shapes[input.kind]}. Cite each item using refs. Do not invent facts. For quizzes, answer is a zero-based option index. For mind maps, use one root, unique IDs, no cycles. For slides, create a clear teaching sequence with concise bullet points, speaker notes, and source refs on each slide. Produce text slides only; do not claim generated images or audio. For audio, write a lively, natural two-host conversation (A explains, B asks and connects ideas) about the sources, 14 to 40 lines, each line one or two spoken sentences with no markdown; set count as a rough guide to the number of key ideas covered.`;
+            const prompt =
+              input.kind === "questions"
+                ? `Suggest three short questions a learner could ask next about these sources. Each must be answerable from the sources, cover a different idea, and be under 120 characters. Write them in the response language. Return ONLY valid JSON in this exact structure: ${shapes.questions}.`
+                : `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}. Return ONLY valid JSON in this exact structure: ${shapes[input.kind]}. Cite each item using refs. Do not invent facts. For quizzes, answer is a zero-based option index. For mind maps, use one root, unique IDs, no cycles. For slides, create a clear teaching sequence with concise bullet points, speaker notes, and source refs on each slide. Produce text slides only; do not claim generated images or audio. For audio, write a lively, natural two-host conversation (A explains, B asks and connects ideas) about the sources, 14 to 40 lines, each line one or two spoken sentences with no markdown; set count as a rough guide to the number of key ideas covered.`;
             const result = await adapter.chat({
               model: input.model,
               effort: input.effort,
@@ -1114,6 +1150,38 @@ export async function createApp(options = {}) {
               input.kind,
               evidence.chunks.length,
             );
+            const recordUsage = () =>
+              db.run(
+                "UPDATE usage SET input_tokens=?,output_tokens=?,estimated_cost=? WHERE id=?",
+                result.usage.input,
+                result.usage.output,
+                estimateCost(
+                  result.usage,
+                  JSON.parse(connection.models).find(
+                    (m) => m.id === input.model,
+                  )?.pricing,
+                ),
+                usageId,
+              );
+            if (input.kind === "questions") {
+              // Suggested questions are notebook state, not a study artifact.
+              db.run(
+                "UPDATE notebooks SET settings=? WHERE id=?",
+                JSON.stringify({
+                  ...JSON.parse(
+                    db.get(
+                      "SELECT settings FROM notebooks WHERE id=?",
+                      notebook.id,
+                    ).settings,
+                  ),
+                  suggestions: content.questions,
+                }),
+                notebook.id,
+              );
+              recordUsage();
+              audit(user, "generated_questions", notebook.id);
+              return json(res, { questions: content.questions }, 201);
+            }
             const evidenceIds = new Set(evidence.chunks.map((c) => c.sourceId));
             const missingSources = input.sourceIds.filter(
               (id) => !evidenceIds.has(id),
@@ -1555,6 +1623,7 @@ export async function createApp(options = {}) {
         "/": "index.html",
         "/index.html": "index.html",
         "/app.js": "app.js",
+        "/graph.js": "graph.js",
         "/style.css": "style.css",
         "/favicon.svg": "favicon.svg",
         "/fonts/dm-sans-regular.ttf": "fonts/dm-sans-regular.ttf",

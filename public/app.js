@@ -1,3 +1,5 @@
+import { createGraph } from "./graph.js";
+
 const $ = (selector) => document.querySelector(selector);
 const state = {
   user: null,
@@ -185,6 +187,15 @@ const pt = {
     "Seu material é enviado apenas ao provedor selecionado.",
   "Markdown content": "Conteúdo Markdown",
   "Paste source text": "Colar texto de uma fonte",
+  "Suggest questions": "Sugerir perguntas",
+  "Refresh questions": "Atualizar perguntas",
+  "Questions ready.": "Perguntas prontas.",
+  "Add from the web": "Adicionar da web",
+  "Web address": "Endereço da web",
+  "Add web page": "Adicionar página da web",
+  "Enter a web address first.": "Digite um endereço da web primeiro.",
+  "Paste a link to a public article, PDF or text file. Pages that need a sign-in or JavaScript cannot be read.":
+    "Cole o link de um artigo público, PDF ou arquivo de texto. Páginas que exigem login ou JavaScript não podem ser lidas.",
   "Add text as source": "Adicionar texto como fonte",
   "Search resources": "Buscar recursos",
   "Manual deck": "Baralho manual",
@@ -324,6 +335,42 @@ const pt = {
   Speed: "Velocidade",
   Voice: "Voz",
   "Download transcript": "Baixar transcrição",
+  "Knowledge graph": "Grafo de conhecimento",
+  "Graph view": "Visualização em grafo",
+  Graph: "Grafo",
+  "All notebooks": "Todos os cadernos",
+  "Graph scope": "Escopo do grafo",
+  "See how your sources, saved resources and topics connect.":
+    "Veja como suas fontes, recursos salvos e tópicos se conectam.",
+  "Search the graph": "Buscar no grafo",
+  Notebooks: "Cadernos",
+  Notebook: "Caderno",
+  Resources: "Recursos",
+  Topics: "Tópicos",
+  Topic: "Tópico",
+  Connections: "Conexões",
+  "No connections yet.": "Ainda sem conexões.",
+  "Open source": "Abrir fonte",
+  "Open resource": "Abrir recurso",
+  "Zoom in": "Aproximar",
+  "Zoom out": "Afastar",
+  "Fit to view": "Ajustar à tela",
+  node: "item",
+  nodes: "itens",
+  link: "ligação",
+  links: "ligações",
+  "Nothing to map yet.": "Nada para mapear ainda.",
+  "Create a notebook and add sources to see how your material connects.":
+    "Crie um caderno e adicione fontes para ver como seu material se conecta.",
+  "Graph unavailable.": "Grafo indisponível.",
+  "This notebook could not be loaded.":
+    "Não foi possível carregar este caderno.",
+  "Drag to move · scroll to zoom · double-click to open":
+    "Arraste para mover · role para ampliar · clique duas vezes para abrir",
+  "Add sources and create study resources to grow this graph.":
+    "Adicione fontes e crie recursos de estudo para expandir este grafo.",
+  "Knowledge graph. Drag to move, scroll to zoom, select an item to see its connections.":
+    "Grafo de conhecimento. Arraste para mover, role para ampliar e selecione um item para ver suas conexões.",
   Effort: "Esforço",
   "Auto effort": "Esforço automático",
   "Low effort": "Esforço baixo",
@@ -386,6 +433,10 @@ const paths = {
   globe:
     "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20 M2 12h20 M12 2a15 15 0 0 1 0 20 M12 2a15 15 0 0 0 0 20",
   eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
+  graph:
+    "M6 8.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5 M18.5 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5 M11 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5 M8.4 6.4l7.6.8 M7 8.3l3 7.9 M17.2 9.7l-4.8 6.9",
+  minus: "M5 12h14",
+  fit: "M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5",
 };
 function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -724,6 +775,7 @@ function rail() {
     ["flashcards", "Flashcards", "cards"],
     ["quizzes", "Quizzes", "quiz"],
     ["progress", "Learning progress", "chart"],
+    ["graph", "Knowledge graph", "graph"],
     ["shared", "Shared with me", "share"],
     ["groups", "Groups", "users"],
     ["communities", "Communities", "globe"],
@@ -839,6 +891,7 @@ function topbar() {
               flashcards: "Flashcards",
               quizzes: "Quizzes",
               progress: "Learning progress",
+              graph: "Knowledge graph",
               shared: "Shared with me",
               groups: "Groups",
               group: "Groups",
@@ -887,6 +940,8 @@ function pageView() {
       return settingsView();
     case "progress":
       return progressView();
+    case "graph":
+      return graphView();
     case "shared":
       return sharedView();
     case "groups":
@@ -1638,6 +1693,7 @@ function notebookMenu(n) {
         }),
     ],
     ["Change icon", "smile", () => iconModal(n)],
+    ["Graph view", "graph", () => nav("graph/" + n.id)],
     ["Share with a person", "share", () => shareModal(n)],
     ["Add to a group", "users", () => addToGroupModal(n)],
     ["Publish to a community", "globe", () => publishModal(n)],
@@ -2161,6 +2217,14 @@ function workspaceView() {
     "gn-pill gn-hide-small",
     "download",
   );
+  const graphButton = button(
+    "Graph",
+    () => nav("graph/" + n.id),
+    "gn-pill gn-hide-small",
+    "graph",
+  );
+  graphButton.setAttribute("aria-label", t("Graph view"));
+  graphButton.title = t("Graph view");
   const account = el(
     "button",
     {
@@ -2173,6 +2237,7 @@ function workspaceView() {
       onClick: () =>
         openMenu(account, [
           ["My notebooks", "book", () => nav("notebooks")],
+          ["Graph view", "graph", () => nav("graph/" + n.id)],
           ["Flashcards", "cards", () => nav("flashcards")],
           ["Learning progress", "chart", () => nav("progress")],
           ["AI connections", "plug", () => nav("connections")],
@@ -2249,6 +2314,7 @@ function workspaceView() {
           "plus",
         ),
         shareButton,
+        graphButton,
         exportButton,
         settingsButton,
         iconButton("sun", "Theme", toggleTheme),
@@ -2679,6 +2745,9 @@ function conversationView() {
     state.locale === "pt-BR"
       ? "Crie uma visão geral das fontes selecionadas, com temas principais, conexões e citações."
       : "Create an overview of the selected sources with key themes, connections, and citations.";
+  const suggestions = Array.isArray(n.settings?.suggestions)
+    ? n.settings.suggestions.filter((s) => typeof s === "string").slice(0, 5)
+    : [];
   let intro;
   if (!w.sources.length)
     intro = el(
@@ -2767,7 +2836,36 @@ function conversationView() {
           "gn-chip quiet",
           "edit",
         ),
+        ready.length && canEdit()
+          ? button(
+              suggestions.length ? "Refresh questions" : "Suggest questions",
+              () => action(suggestQuestions),
+              "gn-chip quiet",
+              "spark",
+            )
+          : null,
       ),
+      suggestions.length
+        ? el(
+            "div",
+            {
+              class: "gn-chip-stack",
+              role: "group",
+              "aria-label": t("Suggested questions"),
+            },
+            suggestions.map((s) =>
+              el(
+                "button",
+                {
+                  type: "button",
+                  class: "gn-chip suggestion",
+                  onClick: () => fill(s),
+                },
+                s,
+              ),
+            ),
+          )
+        : null,
       !w.messages.length && ready.length
         ? el(
             "div",
@@ -2803,15 +2901,17 @@ function conversationView() {
                 ),
               ),
             ),
-            el(
-              "div",
-              { class: "gn-chip-stack" },
-              [
-                "Summarize the main ideas",
-                "Explain a difficult concept step by step",
-                "Compare the key concepts",
-              ].map((s) => button(s, () => fill(s), "gn-chip suggestion")),
-            ),
+            suggestions.length
+              ? null
+              : el(
+                  "div",
+                  { class: "gn-chip-stack" },
+                  [
+                    "Summarize the main ideas",
+                    "Explain a difficult concept step by step",
+                    "Compare the key concepts",
+                  ].map((s) => button(s, () => fill(s), "gn-chip suggestion")),
+                ),
           )
         : null,
     );
@@ -3446,6 +3546,18 @@ function aiSelection(
       : {}),
   };
 }
+/** Ask the AI in use for three questions grounded in the selected sources; the server keeps them on the notebook. */
+async function suggestQuestions() {
+  const selection = aiSelection();
+  if (!selection.sourceIds.length)
+    throw new Error("Select at least one ready source.");
+  await api("notebooks/" + state.activeNotebook + "/generate", {
+    method: "POST",
+    data: { ...selection, kind: "questions" },
+  });
+  await openNotebook(state.activeNotebook);
+  toast("Questions ready.");
+}
 async function uploadFile(file) {
   if (file.size > 10 * 1024 * 1024)
     throw new Error("Maximum file size is 10 MB.");
@@ -3470,7 +3582,30 @@ function uploadModal() {
     text = el("textarea", {
       rows: 7,
       placeholder: "Paste material you have permission to use.",
+    }),
+    link = el("input", {
+      type: "url",
+      maxlength: 2000,
+      placeholder: "https://",
+      "aria-label": t("Web address"),
     });
+  const addLink = button("Add web page", () => {
+    addLink.disabled = true;
+    status.replaceChildren(busy("Working…"));
+    void action(async () => {
+      if (!link.value.trim()) throw new Error("Enter a web address first.");
+      await api("notebooks/" + state.activeNotebook + "/sources", {
+        method: "POST",
+        data: { url: link.value.trim() },
+      });
+      $("#dialog").close();
+      await openNotebook(state.activeNotebook);
+      toast("Upload queued.");
+    }).finally(() => {
+      addLink.disabled = false;
+      status.replaceChildren();
+    });
+  });
   const upload = button(
     "Add sources",
     () => {
@@ -3504,6 +3639,17 @@ function uploadModal() {
       status,
       upload,
       el("hr"),
+      el("h3", {}, t("Add from the web")),
+      el(
+        "p",
+        { class: "muted small" },
+        t(
+          "Paste a link to a public article, PDF or text file. Pages that need a sign-in or JavaScript cannot be read.",
+        ),
+      ),
+      field("Web address", link),
+      addLink,
+      el("hr"),
       el("h3", {}, t("Paste source text")),
       field("Title", name),
       field("Text / Markdown", text),
@@ -3527,7 +3673,7 @@ function uploadModal() {
       el(
         "p",
         { class: "muted small" },
-        "Scanned PDFs need OCR first. Images, audio, video, web URLs and cloud imports are planned. Import only files you are authorized to process.",
+        "Scanned PDFs need OCR first. Images, audio, video and cloud imports are planned. Import only files you are authorized to process.",
       ),
     ),
   );
@@ -6457,6 +6603,264 @@ function communityView(id) {
         ),
       );
     },
+  );
+}
+// --- Knowledge graph ---------------------------------------------------------
+const resourceLabels = {
+  audio: "Audio overview",
+  slides: "Slide deck",
+  mindmap: "Mind map",
+  flashcards: "Flashcards",
+  quiz: "Quiz",
+  table: "Data table",
+  guide: "Study guide",
+  note: "Note",
+};
+const graphKinds = [
+  ["source", "Sources"],
+  ["resource", "Resources"],
+  ["topic", "Topics"],
+];
+const graphDot = (kind) =>
+  el("span", { class: "graph-dot kind-" + kind, "aria-hidden": "true" });
+function graphNodeKind(node) {
+  if (node.kind === "source")
+    return `${t("Source")} · ${formatLabels[node.type] || String(node.type || "").toUpperCase()}`;
+  if (node.kind === "resource") return t(resourceLabels[node.type] || "Note");
+  return t(node.kind === "topic" ? "Topic" : "Notebook");
+}
+async function openGraphNode(node) {
+  if (node.kind === "topic") return;
+  if (node.kind === "notebook") return nav("notebook/" + node.ref);
+  // Keep the address in step with the page so Back returns to the graph.
+  history.pushState(null, "", "#notebook/" + node.notebookId);
+  await openNotebook(node.notebookId);
+  await (node.kind === "source"
+    ? sourceModal(node.ref)
+    : openArtifact(node.ref));
+}
+/** One view, two scopes: every owned notebook, or a single notebook. */
+function graphView() {
+  const scope = state.pageId || "";
+  const hidden = new Set(
+    stored("folio-graph-hidden", "").split(",").filter(Boolean),
+  );
+  let graph = null;
+  const stage = el("div", { class: "graph-stage" }, busy("Working…"));
+  const count = el("span", { class: "gn-count", role: "status" });
+  const detail = el("aside", { class: "graph-detail hidden" });
+  const scopeSelect = el(
+    "select",
+    {
+      class: "graph-scope",
+      "aria-label": t("Graph scope"),
+      onChange: (e) =>
+        nav(e.target.value ? "graph/" + e.target.value : "graph"),
+    },
+    el("option", { value: "", selected: !scope }, t("All notebooks")),
+    state.notebooks.map((n) =>
+      el("option", { value: n.id, selected: n.id === scope }, n.title),
+    ),
+  );
+  const search = el("input", {
+    type: "search",
+    placeholder: t("Search the graph"),
+    "aria-label": t("Search the graph"),
+    onInput: () => applySearch(),
+    onKeydown: (e) => {
+      const first = e.key === "Enter" && graph?.firstMatch();
+      if (first) graph.focus(first.id);
+    },
+  });
+  function updateCount() {
+    const shown = graph.nodes.filter((n) => n.visible).length,
+      lines = graph.links.filter(
+        (l) => l.source.visible && l.target.visible,
+      ).length;
+    count.textContent = `${plural(shown, "node", "nodes")} · ${plural(lines, "link", "links")}`;
+  }
+  function applySearch() {
+    const query = search.value.trim().toLowerCase();
+    graph?.setMatch(
+      query ? (n) => n.label.toLowerCase().includes(query) : null,
+    );
+  }
+  function applyFilter() {
+    if (!graph) return;
+    graph.setVisible((n) => !hidden.has(n.kind));
+    applySearch();
+    updateCount();
+  }
+  const toggles = graphKinds.map(([kind, label]) => {
+    const toggle = el(
+      "button",
+      {
+        type: "button",
+        class: "graph-toggle",
+        "aria-pressed": String(!hidden.has(kind)),
+        onClick: () => {
+          if (!hidden.delete(kind)) hidden.add(kind);
+          toggle.setAttribute("aria-pressed", String(!hidden.has(kind)));
+          store("folio-graph-hidden", [...hidden].join(","));
+          applyFilter();
+        },
+      },
+      graphDot(kind),
+      t(label),
+    );
+    return toggle;
+  });
+  function showDetail(node) {
+    detail.classList.toggle("hidden", !node);
+    if (!node) return detail.replaceChildren();
+    const near = graph.neighbours(node);
+    const home =
+      !scope && (node.kind === "source" || node.kind === "resource")
+        ? graph.nodes.find((n) => n.id === "n:" + node.notebookId)
+        : null;
+    detail.replaceChildren(
+      el(
+        "div",
+        { class: "row between" },
+        el("span", { class: "chip" }, graphDot(node.kind), graphNodeKind(node)),
+        iconButton("close", "Close", () => graph.select(null)),
+      ),
+      el("h3", {}, node.label),
+      home ? el("p", { class: "muted small" }, home.label) : null,
+      node.kind === "topic"
+        ? null
+        : button(
+            node.kind === "notebook"
+              ? "Open notebook"
+              : node.kind === "source"
+                ? "Open source"
+                : "Open resource",
+            () => action(() => openGraphNode(node)),
+            "primary small",
+            "arrow",
+          ),
+      el(
+        "p",
+        { class: "graph-detail-heading" },
+        `${t("Connections")} (${near.length})`,
+      ),
+      near.length
+        ? el(
+            "ul",
+            { class: "graph-links" },
+            near.map((n) =>
+              el(
+                "li",
+                {},
+                el(
+                  "button",
+                  {
+                    type: "button",
+                    class: "graph-link",
+                    title: graphNodeKind(n),
+                    onClick: () => graph.focus(n.id),
+                  },
+                  graphDot(n.kind),
+                  el("span", {}, n.label),
+                ),
+              ),
+            ),
+          )
+        : el("p", { class: "muted small" }, t("No connections yet.")),
+    );
+  }
+  void (async () => {
+    const data = await action(() =>
+      api(scope ? `notebooks/${scope}/graph` : "graph"),
+    );
+    if (!data)
+      return stage.replaceChildren(
+        empty(
+          "Graph unavailable.",
+          "This notebook could not be loaded.",
+          button("All notebooks", () => nav("graph")),
+          "graph",
+        ),
+      );
+    if (!data.nodes.length)
+      return stage.replaceChildren(
+        empty(
+          "Nothing to map yet.",
+          "Create a notebook and add sources to see how your material connects.",
+          button("New notebook", newNotebook, "primary", "plus"),
+          "graph",
+        ),
+      );
+    // A notebook shared with this account is not in the owned list.
+    const hub = data.nodes.find((n) => n.id === "n:" + scope);
+    if (hub && !state.notebooks.some((n) => n.id === scope))
+      scopeSelect.append(
+        el("option", { value: scope, selected: true }, hub.label),
+      );
+    const canvas = el("canvas", {
+      class: "graph-canvas",
+      tabindex: 0,
+      role: "application",
+      "aria-label": t(
+        "Knowledge graph. Drag to move, scroll to zoom, select an item to see its connections.",
+      ),
+    });
+    graph = createGraph(canvas, data, {
+      onSelect: showDetail,
+      onOpen: (node) => void action(() => openGraphNode(node)),
+    });
+    stage.replaceChildren(
+      canvas,
+      el(
+        "div",
+        { class: "graph-zoom" },
+        iconButton("plus", "Zoom in", () => graph.zoom(1.3)),
+        iconButton("minus", "Zoom out", () => graph.zoom(1 / 1.3)),
+        iconButton("fit", "Fit to view", () => graph.fit()),
+      ),
+      el(
+        "p",
+        { class: "graph-hint" },
+        t(
+          data.nodes.some((n) => n.kind !== "notebook")
+            ? "Drag to move · scroll to zoom · double-click to open"
+            : "Add sources and create study resources to grow this graph.",
+        ),
+      ),
+      detail,
+    );
+    applyFilter();
+  })();
+  return el(
+    "div",
+    { class: "graph-page" },
+    heading(
+      "Knowledge graph",
+      "See how your sources, saved resources and topics connect.",
+      el(
+        "div",
+        { class: "row graph-scope-row" },
+        scopeSelect,
+        scope
+          ? button("Open notebook", () => nav("notebook/" + scope), "", "arrow")
+          : null,
+      ),
+    ),
+    el(
+      "div",
+      { class: "graph-toolbar" },
+      el("label", { class: "gn-search" }, icon("search"), search),
+      el(
+        "div",
+        { class: "graph-toggles", role: "group", "aria-label": t("Graph") },
+        graphDot("notebook"),
+        el("span", { class: "graph-legend-label" }, t("Notebooks")),
+        toggles,
+      ),
+      el("span", { class: "grow" }),
+      count,
+    ),
+    stage,
   );
 }
 window.addEventListener("hashchange", () => void action(route));
