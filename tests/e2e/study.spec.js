@@ -98,7 +98,8 @@ test("account → provider → PDF → cited chat → review → quiz → reload
     .getByRole("button", { name: "Reveal answer", exact: true })
     .last()
     .click();
-  await page.getByRole("button", { name: "Good", exact: true }).click();
+  await page.getByRole("button", { name: /^Good \d/ }).click();
+  await expect(page.locator(".fc-count")).toHaveText("Card 2 of 2");
   await expect(
     page.getByText("What contains DNA?", { exact: true }),
   ).toBeVisible();
@@ -205,6 +206,7 @@ test("guest notes, manual flashcards, exports, keyboard and safe rendering", asy
   await page.getByRole("button", { name: "Manual deck", exact: true }).click();
   await page.getByLabel("Title", { exact: true }).fill("Recall deck");
   await page.getByRole("button", { name: "Create deck" }).click();
+  await page.getByLabel("More", { exact: true }).click();
   await page.getByRole("button", { name: "Add card" }).click();
   await page.getByLabel("Front", { exact: true }).fill("What is ATP?");
   await page
@@ -214,7 +216,7 @@ test("guest notes, manual flashcards, exports, keyboard and safe rendering", asy
     .getByRole("dialog")
     .getByRole("button", { name: "Save", exact: true })
     .click();
-  await page.locator(".flashcard").focus();
+  await page.locator(".fc-card").focus();
   await page.keyboard.press("Space");
   await expect(
     page.getByText("An energy-transfer molecule.", { exact: true }),

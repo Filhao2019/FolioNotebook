@@ -5,6 +5,7 @@ import { BlockList, isIP } from "node:net";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
 import { AppError, assert } from "./security.js";
 import { fetchYouTubeSource, youtubeVideoId } from "./youtube.js";
+import { decodeEntities, fileName } from "./text.js";
 
 const MAX_BYTES = 10 * 1024 * 1024,
   MAX_REDIRECTS = 5,
@@ -184,37 +185,6 @@ function decompress(body, encoding) {
   throw new AppError(502, "The page uses an unsupported compression.");
 }
 
-const entities = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-  ndash: "–",
-  mdash: "—",
-  hellip: "…",
-  lsquo: "‘",
-  rsquo: "’",
-  ldquo: "“",
-  rdquo: "”",
-  copy: "©",
-  reg: "®",
-  deg: "°",
-  euro: "€",
-};
-export const decodeEntities = (text) =>
-  text.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]*);/gi, (match, name) => {
-    if (name[0] !== "#") return entities[name.toLowerCase()] ?? match;
-    const code =
-      name[1] === "x" || name[1] === "X"
-        ? parseInt(name.slice(2), 16)
-        : parseInt(name.slice(1), 10);
-    return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
-      ? String.fromCodePoint(code)
-      : "";
-  });
-
 const tidy = (text) =>
   decodeEntities(text)
     .replace(/[\0\r]/g, "")
@@ -302,15 +272,6 @@ function decodeText(body, type) {
   }
 }
 
-export const fileName = (base, extension) =>
-  (base
-    .replace(/[\\/:*?"<>|\p{Cc}]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 180) || "Web page") +
-  "." +
-  extension;
-
 /** Turn a fetched response into an uploadable `{name, buffer}` in a supported source format. */
 export function toSource(url, type, body) {
   const mime = type.split(";")[0].trim().toLowerCase(),
@@ -358,12 +319,14 @@ export function toSource(url, type, body) {
  * Every redirect hop is re-validated; private and loopback hosts are refused.
  * YouTube video links are not downloaded as pages: their transcript is fetched instead.
  * @param {string} raw
+ * @param {{ languages?: string[] }} [options] preferred transcript languages
  * @returns {Promise<{name:string, buffer:Buffer, url:string}>}
  */
-export async function fetchWebSource(raw) {
+export async function fetchWebSource(raw, options = {}) {
   let url = parsePublicUrl(raw);
   const videoId = youtubeVideoId(url.href);
-  if (videoId) return fetchYouTubeSource(videoId);
+  if (videoId)
+    return fetchYouTubeSource(videoId, { languages: options.languages });
   const signal = AbortSignal.timeout(TOTAL_TIMEOUT);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const result = await requestOnce(url, signal);

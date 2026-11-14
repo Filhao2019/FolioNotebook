@@ -89,7 +89,7 @@ test("grades and ratings convert between the old and new scales", () => {
 });
 
 /** Starts an isolated app whose provider records every model request. */
-async function start(port) {
+async function start(port, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), "folio-learning-")),
     origin = "http://127.0.0.1:" + port,
     calls = [];
@@ -97,6 +97,7 @@ async function start(port) {
     directory: dir,
     secretDirectory: join(dir, "keys"),
     origin,
+    ...options,
     providerFactory: (provider) => {
       const fixture = fixtureProvider(provider);
       const chat = fixture.chat;
@@ -186,7 +187,8 @@ test("reviews take a 1-4 rating or an old grade and report the next intervals", 
   try {
     const { user, generate } = await learner(h, "ana");
     const deck = (await generate({ kind: "flashcards" })).data;
-    assert.deepEqual(deck.counts, { total: 2, due: 2, missed: 0, fresh: 2 });
+    // Never-reviewed cards are "fresh", not "due".
+    assert.deepEqual(deck.counts, { total: 2, due: 0, missed: 0, fresh: 2 });
     assert.equal(deck.spaced, true);
     const [first, second] = deck.cards;
     assert.deepEqual(first.preview, { again: 1 / 144, hard: 1, good: 3, easy: 16 });
@@ -283,7 +285,9 @@ test("explanations are generated once, cached, and never stored for viewers", as
     assert.equal(asked.data.answer, "ATP stores the energy [1] and [unverified reference removed].");
     assert.equal(asked.data.citations.length, 1);
     const request = h.calls.at(-1);
-    assert.match(request.system, /Key takeaway: "Mitochondria make ATP\."/);
+    assert.match(request.system, /Explanation they are reading: ".*why: Mitochondria run aerobic respiration\./);
+    assert.match(request.system, /takeaway: Mitochondria make ATP\./);
+    assert.match(request.system, /example: Muscle cells/);
     assert.deepEqual(
       request.messages.map((m) => m.role),
       ["user", "user"],
@@ -538,7 +542,102 @@ test("progress lists weak quiz topics with their counts", async () => {
         notebookId: quiz.notebook_id,
       },
     ]);
-    assert.equal(progress.dueCards, progress.due);
+    assert.equal(progress.dueCards, 0);
+    assert.equal(progress.newCards, 0);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a regenerated card without its own sources cites the passages it used", async () => {
+  const h = await start(4566);
+  try {
+    const { user, ai, notebook } = await learner(h, "ana");
+    const deck = (
+      await user.call(`notebooks/${notebook}/decks`, "POST", { title: "Mine" })
+    ).data.id;
+    const made = await user.call(`artifacts/${deck}/cards`, "POST", {
+      front: "What do mitochondria do?",
+      back: "Energy.",
+    });
+    assert.deepEqual(
+      (await user.call("artifacts/" + deck)).data.cards[0].refs,
+      [],
+    );
+    const card = await user.call(`cards/${made.data.id}/regenerate`, "POST", ai);
+    assert.equal(card.status, 200);
+    assert.deepEqual(card.data.refs, [1]);
+    const after = (await user.call("artifacts/" + deck)).data;
+    assert.equal(after.citations.length, 1);
+    assert.equal(after.citations[0].id, 1);
+    assert.match(after.citations[0].text, /Mitochondria/);
+    assert.deepEqual(after.cards[0].refs, [1]);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("decks without spaced repetition schedule nothing, and new cards are not due", async () => {
+  const h = await start(4567);
+  try {
+    const { user, generate } = await learner(h, "ana");
+    const spaced = (await generate({ kind: "flashcards" })).data;
+    const plain = (await generate({ kind: "flashcards", spaced: false })).data;
+    assert.deepEqual(plain.counts, { total: 2, due: 0, missed: 0, fresh: 2 });
+    let progress = (await user.call("progress")).data;
+    // Only the spaced deck's two never-reviewed cards count, as new.
+    assert.equal(progress.newCards, 2);
+    assert.equal(progress.dueCards, 0);
+    assert.equal(progress.due, 2);
+    assert.equal(progress.cards, 4);
+
+    // Reviews on the plain deck are still recorded.
+    const review = await user.call(`cards/${plain.cards[0].id}/review`, "POST", {
+      rating: 1,
+    });
+    assert.equal(review.status, 200);
+    const after = (await user.call("artifacts/" + plain.id)).data;
+    assert.equal(after.cards[0].lastRating, 1);
+    assert.equal(after.cards[0].lapses, 1);
+    assert.equal(after.counts.due, 0);
+    progress = (await user.call("progress")).data;
+    assert.equal(progress.reviews, 1);
+    assert.equal(progress.newCards, 2);
+    assert.equal(progress.due, 2);
+
+    // Reviewing a spaced card turns it from new into scheduled.
+    await user.call(`cards/${spaced.cards[0].id}/review`, "POST", { rating: 3 });
+    progress = (await user.call("progress")).data;
+    assert.equal(progress.newCards, 1);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("transcripts prefer the notebook's language", async () => {
+  const seen = [];
+  const h = await start(4569, {
+    fetchWebSource: async (url, options) => {
+      seen.push(options?.languages);
+      return {
+        name: "Video.md",
+        buffer: Buffer.from(sourceText + seen.length),
+        url,
+      };
+    },
+  });
+  try {
+    const { user, notebook } = await learner(h, "ana");
+    const add = () =>
+      user.call(`notebooks/${notebook}/sources`, "POST", {
+        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      });
+    assert.equal((await add()).status, 202);
+    await user.call("notebooks/" + notebook, "PATCH", {
+      settings: { language: "Português (Brasil)" },
+    });
+    assert.equal((await add()).status, 202);
+    assert.deepEqual(seen, [["en"], ["pt", "en"]]);
   } finally {
     await h.stop();
   }

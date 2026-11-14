@@ -1,5 +1,5 @@
 import { AppError, assert } from "./security.js";
-import { decodeEntities, fileName } from "./web-source.js";
+import { decodeEntities, fileName } from "./text.js";
 
 const ORIGIN = "https://www.youtube.com",
   ID = /^[A-Za-z0-9_-]{11}$/,
@@ -152,7 +152,7 @@ function paragraphs(segments) {
  * @returns {Promise<{name:string, buffer:Buffer, url:string}>}
  */
 export async function fetchYouTubeSource(videoId, options = {}) {
-  assert(ID.test(videoId), 422, unavailable().message);
+  if (!ID.test(videoId)) throw unavailable();
   const fetchImpl = options.fetch || globalThis.fetch,
     languages = options.languages || ["en"],
     signal = AbortSignal.timeout(TIMEOUT),
@@ -175,25 +175,24 @@ export async function fetchYouTubeSource(videoId, options = {}) {
   });
   const key = /"INNERTUBE_API_KEY":\s*"([A-Za-z0-9_-]+)"/.exec(page)?.[1];
   if (!key) throw /recaptcha/i.test(page) ? blocked() : unreachable();
+  const reply = await request(
+    `${ORIGIN}/youtubei/v1/player?key=${encodeURIComponent(key)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        context: {
+          client: { clientName: "ANDROID", clientVersion: "20.10.38" },
+        },
+        videoId,
+      }),
+    },
+  );
   let player;
   try {
-    player = JSON.parse(
-      await request(
-        `${ORIGIN}/youtubei/v1/player?key=${encodeURIComponent(key)}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            context: {
-              client: { clientName: "ANDROID", clientVersion: "20.10.38" },
-            },
-            videoId,
-          }),
-        },
-      ),
-    );
-  } catch (error) {
-    throw error instanceof AppError ? error : unreachable();
+    player = JSON.parse(reply);
+  } catch {
+    throw unreachable();
   }
   const playability = player?.playabilityStatus;
   if (playability?.status && playability.status !== "OK") {

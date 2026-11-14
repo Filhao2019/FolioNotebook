@@ -435,10 +435,18 @@ export const explainPrompt = (card, sources) =>
 /**
  * System prompt for questions about one flashcard.
  * @param {Record<string, any>} card
- * @param {string} [takeaway] key takeaway of its cached detailed explanation
+ * @param {Record<string, any> | null} [detail] its cached detailed explanation
  */
-export const askContext = (card, takeaway = "") =>
-  `The learner is studying this flashcard. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${card.explanation ? ` Note: ${JSON.stringify(card.explanation)}.` : ""}${takeaway ? ` Key takeaway: ${JSON.stringify(takeaway)}.` : ""} Answer their question about it in short Markdown, grounded in the excerpts, citing as [1].`;
+export const askContext = (card, detail = null) => {
+  const shown = detail
+    ? ["why", "detail", "simple", "example", "takeaway"]
+        .filter((k) => detail[k])
+        .map((k) => `${k}: ${detail[k]}`)
+        .join(" | ")
+        .slice(0, 1500)
+    : "";
+  return `The learner is studying this flashcard. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${card.explanation ? ` Note: ${JSON.stringify(card.explanation)}.` : ""}${shown ? ` Explanation they are reading: ${JSON.stringify(shown)}.` : ""} Answer their question about it in short Markdown, grounded in the excerpts, citing as [1].`;
+};
 /**
  * Ask for a differently worded version of one flashcard.
  * @param {Record<string, any>} card

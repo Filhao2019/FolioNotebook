@@ -237,6 +237,12 @@ export async function createApp(options = {}) {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   };
+  /** Transcript languages to prefer for a notebook (or a chat's own language). */
+  const transcriptLanguages = (notebook, language) =>
+    (language || JSON.parse(notebook.settings).language) ===
+    "Português (Brasil)"
+      ? ["pt", "en"]
+      : ["en"];
   /**
    * Add the YouTube videos linked in a chat message as sources and wait (up to
    * 30 s in total) until they can be searched. Failures never throw; they are
@@ -244,8 +250,9 @@ export async function createApp(options = {}) {
    * @param {any} notebook
    * @param {string} user
    * @param {string[]} urls
+   * @param {string} [language] the chat's language, when it overrides the notebook's
    */
-  const addChatVideos = async (notebook, user, urls) => {
+  const addChatVideos = async (notebook, user, urls, language) => {
     const deadline = Date.now() + 30_000,
       ready = [],
       added = [],
@@ -256,7 +263,9 @@ export async function createApp(options = {}) {
         const source = await addSource(
           notebook,
           user,
-          await fetchUrl(url),
+          await fetchUrl(url, {
+            languages: transcriptLanguages(notebook, language),
+          }),
           true,
         );
         if (source.added) added.push(source.id);
@@ -367,6 +376,9 @@ export async function createApp(options = {}) {
     );
     return result;
   };
+  /** A card never reviewed. */
+  const isFresh = (/** @type {Record<string, any>} */ c) =>
+    c.last_review == null && !c.repetitions && !c.lapses;
   /** A card as the client sees it: schedule state, next intervals, no cached detail. */
   const cardView = (/** @type {Record<string, any>} */ row, now = Date.now()) => {
     const { detail, ...c } = row;
@@ -402,11 +414,12 @@ export async function createApp(options = {}) {
             spaced: content.spaced !== false,
             counts: {
               total: cards.length,
-              due: cards.filter((c) => c.due <= now).length,
+              due:
+                content.spaced === false
+                  ? 0
+                  : cards.filter((c) => !isFresh(c) && c.due <= now).length,
               missed: cards.filter((c) => c.lastRating === 1).length,
-              fresh: cards.filter(
-                (c) => c.last_review == null && !c.repetitions && !c.lapses,
-              ).length,
+              fresh: cards.filter(isFresh).length,
             },
           }
         : {}),
@@ -450,8 +463,8 @@ export async function createApp(options = {}) {
       .slice(0, 2);
     return [...found, ...own].map((c, i) => ({ ...c, id: i + 1 }));
   };
-  /** One short model call about a card, under the same limits and usage records as generation. */
-  const cardAi = async (res, user, input, request) => {
+  /** Rate limit, daily quota and concurrency checks before any model request. */
+  const aiGate = (user) => {
     limiter.take(`ai:${user}`, 20);
     assert(
       db.get(
@@ -466,6 +479,10 @@ export async function createApp(options = {}) {
       429,
       "Two AI requests are already running.",
     );
+  };
+  /** One short model call about a card, under the same limits and usage records as generation. */
+  const cardAi = async (res, user, input, request) => {
+    aiGate(user);
     const { connection, adapter } = aiConnection(input, user);
     activeAi.set(user, (activeAi.get(user) || 0) + 1);
     const abort = new AbortController();
@@ -504,9 +521,12 @@ export async function createApp(options = {}) {
   };
   const stats = (user) => {
     const cards = db.all(
-      "SELECT c.* FROM cards c JOIN artifacts a ON a.id=c.artifact_id JOIN notebooks n ON n.id=a.notebook_id WHERE n.user_id=?",
+      "SELECT c.*,json_extract(a.content,'$.spaced') AS spaced FROM cards c JOIN artifacts a ON a.id=c.artifact_id JOIN notebooks n ON n.id=a.notebook_id WHERE n.user_id=?",
       user,
     );
+    // Only decks with spaced repetition on schedule reviews.
+    const scheduled = cards.filter((c) => c.spaced !== 0);
+    const now = Date.now();
     const reviews = db.all(
       "SELECT r.grade,r.created FROM card_reviews r JOIN cards c ON c.id=r.card_id JOIN artifacts a ON a.id=c.artifact_id JOIN notebooks n ON n.id=a.notebook_id WHERE n.user_id=? ORDER BY r.created DESC",
       user,
@@ -523,8 +543,9 @@ export async function createApp(options = {}) {
     );
     return {
       cards: cards.length,
-      due: cards.filter((c) => c.due <= Date.now()).length,
-      dueCards: cards.filter((c) => c.due <= Date.now()).length,
+      due: scheduled.filter((c) => c.due <= now).length,
+      dueCards: scheduled.filter((c) => !isFresh(c) && c.due <= now).length,
+      newCards: scheduled.filter(isFresh).length,
       weakConcepts: weaknesses(db, { user }),
       reviews: reviews.length,
       recall: reviews.length
@@ -1268,7 +1289,9 @@ export async function createApp(options = {}) {
           notebook,
           user,
           input.url
-            ? await fetchUrl(input.url)
+            ? await fetchUrl(input.url, {
+                languages: transcriptLanguages(notebook),
+              })
             : { name: input.name, buffer: Buffer.from(input.base64, "base64") },
         );
         return json(res, { id, status: "queued" }, 202);
@@ -1436,20 +1459,7 @@ export async function createApp(options = {}) {
             )
             .map((c) => c.front.slice(0, 120));
         }
-        limiter.take(`ai:${user}`, 20);
-        assert(
-          db.get(
-            "SELECT COUNT(*) AS count FROM usage WHERE user_id=? AND created>=date('now')",
-            user,
-          ).count < 150,
-          429,
-          "Daily generation quota reached (150).",
-        );
-        assert(
-          (activeAi.get(user) || 0) < 2,
-          429,
-          "Two AI requests are already running.",
-        );
+        aiGate(user);
         const { connection, adapter } = aiConnection(input, user);
         activeAi.set(user, (activeAi.get(user) || 0) + 1);
         const abort = new AbortController();
@@ -1491,12 +1501,21 @@ export async function createApp(options = {}) {
           let question = input.message,
             videoNote = "",
             videos = { ready: [], added: [], failures: [] };
-          const links =
-            !generation && notebook.access !== "view"
-              ? youtubeUrls(String(input.message))
-              : [];
-          if (links.length) {
-            videos = await addChatVideos(notebook, user, links);
+          const links = !generation ? youtubeUrls(String(input.message)) : [];
+          if (links.length && notebook.access === "view")
+            videoNote = links
+              .map(
+                (url) =>
+                  `\n\n[Folio note: ${url} could not be added because the user has view-only access to this notebook. Tell the user this plainly; do not guess what the video contains.]`,
+              )
+              .join("");
+          else if (links.length) {
+            videos = await addChatVideos(
+              notebook,
+              user,
+              links,
+              input.language,
+            );
             input.sourceIds = [
               ...new Set([...input.sourceIds, ...videos.ready]),
             ];
@@ -2238,7 +2257,7 @@ export async function createApp(options = {}) {
               kind: "chat",
               message: input.question,
             }),
-            system: `${askContext(card, cached?.takeaway)}\n${system}`,
+            system: `${askContext(card, cached)}\n${system}`,
             messages: [
               ...turns.map((t) => ({ role: t.role, content: t.text })),
               { role: "user", content: input.question },
@@ -2293,13 +2312,24 @@ export async function createApp(options = {}) {
           "SELECT settings FROM notebooks WHERE id=?",
           artifact.notebook_id,
         );
-        // Refs keep the numbering of the deck's own citations, so they stay valid.
+        // Refs index the deck's stored citations. The card's own passages keep
+        // their numbers; passages found now are numbered after the stored ones
+        // and appended to the deck's citations when the rewrite cites them.
         const live = readySources(artifact.notebook_id);
         const cited = JSON.parse(artifact.citations);
         const own = JSON.parse(card.refs)
           .map((r) => cited[r - 1])
           .filter((c) => c && live.includes(c.sourceId));
-        const chunks = own.length ? own : await cardPassages(card, artifact);
+        const added = [];
+        const chunks = own.length
+          ? own
+          : (await cardPassages(card, artifact)).map((c) => {
+              const at = cited.findIndex((x) => x.chunkId === c.chunkId);
+              if (at >= 0) return { ...c, id: at + 1 };
+              const entry = { ...c, id: cited.length + added.length + 1 };
+              added.push(entry);
+              return entry;
+            });
         assert(chunks.length, 400, "No source text is available.");
         const result = await cardAi(res, user, input, {
           effort: resolveEffort(input.effort, {
@@ -2327,19 +2357,24 @@ export async function createApp(options = {}) {
           "cardRewrite",
           Math.max(...chunks.map((c) => c.id)),
         );
-        db.run(
-          "UPDATE cards SET front=?,back=?,hint=?,explanation=?,refs=?,detail=NULL WHERE id=?",
-          rewrite.front,
-          rewrite.back,
-          rewrite.hint,
-          rewrite.explanation,
-          JSON.stringify(
-            own.length
-              ? rewrite.refs.filter((r) => own.some((c) => c.id === r))
-              : [],
-          ),
-          card.id,
-        );
+        const refs = rewrite.refs.filter((r) => chunks.some((c) => c.id === r));
+        db.transaction(() => {
+          if (added.some((c) => refs.includes(c.id)))
+            db.run(
+              "UPDATE artifacts SET citations=? WHERE id=?",
+              JSON.stringify([...cited, ...added]),
+              artifact.id,
+            );
+          db.run(
+            "UPDATE cards SET front=?,back=?,hint=?,explanation=?,refs=?,detail=NULL WHERE id=?",
+            rewrite.front,
+            rewrite.back,
+            rewrite.hint,
+            rewrite.explanation,
+            JSON.stringify(refs),
+            card.id,
+          );
+        });
         audit(user, "card_regenerated", card.id);
         return json(
           res,

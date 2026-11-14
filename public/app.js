@@ -410,6 +410,95 @@ const pt = {
   "Reset to recommended": "Voltar ao recomendado",
   "Applies to reasoning models; others ignore it.":
     "Vale para modelos de raciocínio; os demais ignoram.",
+  Use: "Usar",
+  "Entire notebook": "Caderno inteiro",
+  "Selected sources": "Fontes selecionadas",
+  Medium: "Médio",
+  Adaptive: "Adaptativo",
+  "Adaptive targets your weak concepts.":
+    "O modo adaptativo prioriza os conceitos em que você mais erra.",
+  Definitions: "Definições",
+  "Key concepts": "Conceitos-chave",
+  "Questions & answers": "Perguntas e respostas",
+  "Exam preparation": "Preparação para prova",
+  Mixed: "Misto",
+  "Spaced repetition": "Repetição espaçada",
+  "Schedule each card for review with FSRS.":
+    "Agenda a revisão de cada cartão com o FSRS.",
+  "Include explanations": "Incluir explicações",
+  "Add a short explanation to every card.":
+    "Adiciona uma explicação curta a cada cartão.",
+  "Based on deck:": "Baseado no baralho:",
+  "Questions come from this deck's cards.":
+    "As perguntas vêm dos cartões deste baralho.",
+  "Number of cards": "Quantidade de cartões",
+  "Number of questions": "Quantidade de perguntas",
+  Custom: "Personalizado",
+  "Custom instructions (optional)": "Instruções personalizadas (opcional)",
+  Focus: "Foco",
+  "Regenerating…": "Gerando novamente…",
+  Progress: "Progresso",
+  Explain: "Explicar",
+  "Study mode": "Modo de estudo",
+  Due: "Para revisar",
+  Missed: "Errados",
+  "Card {n} of {total}": "Cartão {n} de {total}",
+  Answer: "Resposta",
+  "Press Space to flip": "Pressione Espaço para virar",
+  Flagged: "Sinalizado",
+  "Tap to flip": "Toque para virar",
+  "Study again": "Estudar de novo",
+  "Know it": "Já sei",
+  min: "min",
+  h: "h",
+  d: "d",
+  mo: "m",
+  y: "a",
+  "This deck has no cards yet.": "Este baralho ainda não tem cartões.",
+  "Add a card or import a CSV to start.":
+    "Adicione um cartão ou importe um CSV para começar.",
+  "No missed cards.": "Nenhum cartão errado.",
+  "Study all cards": "Estudar todos os cartões",
+  "Review missed cards": "Revisar cartões errados",
+  "Make a quiz from this deck": "Criar um questionário deste baralho",
+  "Open the source to read this passage.":
+    "Abra a fonte para ler esta passagem.",
+  "Why this answer is correct": "Por que esta resposta está correta",
+  "Detailed understanding": "Compreensão detalhada",
+  "Simple explanation": "Explicação simples",
+  "Practical example": "Exemplo prático",
+  "Source reference": "Referência da fonte",
+  "No source passage was cited.": "Nenhuma passagem da fonte foi citada.",
+  "Add as a new card": "Adicionar como novo cartão",
+  "Ask Folio AI": "Perguntar ao Folio AI",
+  "Ask a follow-up question": "Faça uma pergunta de acompanhamento",
+  "Explaining…": "Explicando…",
+  "Instructions (optional)": "Instruções (opcional)",
+  "Folio AI rewrites this card from your sources. Your review history is kept.":
+    "O Folio AI reescreve este cartão a partir das suas fontes. Seu histórico de revisão é mantido.",
+  "Delete this card?": "Excluir este cartão?",
+  Flag: "Sinalizar",
+  Unflag: "Remover sinalização",
+  "Due + new": "Para revisar + novos",
+  New: "Novos",
+  Notes: "Notas",
+  "Use note": "Usar a nota",
+  More: "Mais",
+  Practice: "Praticar",
+  "Focus on": "Foco em",
+  "Hint (optional)": "Dica (opcional)",
+  "Explanation (optional)": "Explicação (opcional)",
+  "Make flashcards from missed answers":
+    "Criar cartões a partir das respostas erradas",
+  "Flashcards created from your missed answers.":
+    "Cartões criados a partir das suas respostas erradas.",
+  "Weak concepts": "Conceitos fracos",
+  "No weak concepts yet.": "Nenhum conceito fraco ainda.",
+  "Card added.": "Cartão adicionado.",
+  "Card regenerated.": "Cartão gerado novamente.",
+  "Card updated.": "Cartão atualizado.",
+  "Card flagged.": "Cartão sinalizado.",
+  "Flag removed.": "Sinalização removida.",
 };
 const t = (text) => (state.locale === "pt-BR" ? pt[text] || text : text);
 const paths = {
@@ -477,6 +566,7 @@ const paths = {
   folder:
     "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z",
   tag: "M3 4h8l10 10-7 7L4 11z M7.5 8h.01",
+  shuffle: "M16 3h5v5 M4 20 21 3 M21 16v5h-5 M15 15l6 6 M4 4l5 5",
 };
 function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -4530,6 +4620,52 @@ function reportsModal() {
     ),
   );
 }
+/** A row of single-choice chips; `set` changes the choice without calling back. */
+function chipGroup(label, choices, value, onPick) {
+  const group = el("div", {
+    class: "chip-row",
+    role: "group",
+    "aria-label": t(label),
+  });
+  const sync = () => {
+    for (const chip of group.children)
+      chip.setAttribute(
+        "aria-pressed",
+        String(chip.dataset.value === String(value)),
+      );
+  };
+  for (const [choice, name] of choices)
+    group.append(
+      el(
+        "button",
+        {
+          type: "button",
+          class: "choice-chip",
+          "data-value": choice,
+          onClick: () => {
+            value = choice;
+            sync();
+            onPick(choice);
+          },
+        },
+        name,
+      ),
+    );
+  sync();
+  return Object.assign(group, {
+    set: (next) => {
+      value = next;
+      sync();
+    },
+  });
+}
+const genGroup = (label, ...nodes) =>
+  el(
+    "div",
+    { class: "gen-group" },
+    el("span", { class: "gen-label" }, t(label)),
+    ...nodes,
+  );
 function generateModal(kind, options = {}) {
   if (!state.connections.length) {
     modal(
@@ -4554,7 +4690,34 @@ function generateModal(kind, options = {}) {
     );
     return;
   }
-  const count = el("input", { type: "number", min: 1, max: 30, value: 8 }),
+  // Flashcards and quizzes get chip controls and remember the last choices.
+  const study = kind === "flashcards" || kind === "quiz",
+    maxCount = kind === "flashcards" ? 50 : 30,
+    prefKey = "folio-generate-" + kind;
+  let saved = {};
+  try {
+    saved = JSON.parse(stored(prefKey, "{}")) || {};
+  } catch {
+    saved = {};
+  }
+  const pick = (value, allowed, fallback) =>
+    allowed.includes(value) ? value : fallback;
+  let level = pick(
+      options.difficulty || saved.difficulty,
+      ["easy", "medium", "hard", "adaptive"],
+      "medium",
+    ),
+    cardFocus = pick(
+      saved.cardFocus,
+      ["definitions", "concepts", "qa", "exam", "mixed"],
+      "mixed",
+    );
+  const count = el("input", {
+      type: "number",
+      min: 1,
+      max: study ? maxCount : 30,
+      value: study ? Math.min(maxCount, Number(saved.count) || 10) : 8,
+    }),
     difficulty = el(
       "select",
       {},
@@ -4580,6 +4743,7 @@ function generateModal(kind, options = {}) {
       rows: 3,
       maxlength: kind === "guide" || kind === "audio" ? 750 : 1000,
       placeholder: "Chapter, topic, level, exam, depth…",
+      value: options.instructions || "",
     }),
     status = el("div");
   const notebookId = state.activeNotebook;
@@ -4610,6 +4774,148 @@ function generateModal(kind, options = {}) {
       el("option", { value: name }, t(name)),
     ),
   );
+  const sourceNote = el("p", { class: "muted small" }),
+    ready = state.workspace.sources.filter((s) => s.status === "ready"),
+    notes = state.workspace.artifacts.filter((n) => n.kind === "note"),
+    pickedNotes = new Set(),
+    showNote = () =>
+      sourceNote.replaceChildren(
+        `${state.selected.size} ${t("Sources").toLowerCase()} selected. ${t("Your material is sent only to the provider you select.")} API charges may apply; no provider fallback is automatic.`,
+      );
+  showNote();
+  const sourceList = el(
+    "div",
+    { class: "gen-sources" },
+    ready.map((s) =>
+      el(
+        "label",
+        { class: "gen-check" },
+        el("input", {
+          type: "checkbox",
+          checked: state.selected.has(s.id),
+          "aria-label": t("Use") + " " + s.title,
+          onChange: (e) => {
+            if (e.target.checked) state.selected.add(s.id);
+            else state.selected.delete(s.id);
+            syncSelection();
+            showNote();
+          },
+        }),
+        el("span", {}, s.title),
+      ),
+    ),
+    notes.length ? el("span", { class: "gen-label" }, t("Notes")) : null,
+    notes.map((n) =>
+      el(
+        "label",
+        { class: "gen-check" },
+        el("input", {
+          type: "checkbox",
+          "data-note": n.id,
+          "aria-label": t("Use note") + " " + n.title,
+          onChange: (e) => {
+            if (e.target.checked) pickedNotes.add(n.id);
+            else pickedNotes.delete(n.id);
+          },
+        }),
+        el("span", {}, n.title),
+      ),
+    ),
+  );
+  sourceList.hidden = true;
+  const scope = chipGroup(
+    "Sources",
+    [
+      ["all", t("Entire notebook")],
+      ["some", t("Selected sources")],
+    ],
+    "all",
+    (value) => {
+      if (value === "all") {
+        state.selected = new Set(ready.map((s) => s.id));
+        pickedNotes.clear();
+        for (const box of sourceList.querySelectorAll("input"))
+          box.checked = !box.dataset.note;
+        syncSelection();
+        showNote();
+      }
+      sourceList.hidden = value === "all";
+    },
+  );
+  const countChips = chipGroup(
+    "Number of items",
+    (kind === "flashcards" ? [5, 10, 20, 30, 50] : [5, 10, 20, 30]).map((n) => [
+      n,
+      String(n),
+    ]),
+    Number(count.value),
+    (value) => {
+      count.value = value;
+    },
+  );
+  count.addEventListener("input", () => countChips.set(Number(count.value)));
+  const levelHint = el("small", { class: "muted" });
+  const levelChips = chipGroup(
+    "Difficulty",
+    [
+      ["easy", t("Easy")],
+      ["medium", t("Medium")],
+      ["hard", t("Hard")],
+      ["adaptive", t("Adaptive")],
+    ],
+    level,
+    (value) => {
+      level = value;
+      levelHint.textContent =
+        value === "adaptive" ? t("Adaptive targets your weak concepts.") : "";
+    },
+  );
+  levelHint.textContent =
+    level === "adaptive" ? t("Adaptive targets your weak concepts.") : "";
+  const focusChips = chipGroup(
+    "Focus",
+    [
+      ["definitions", t("Definitions")],
+      ["concepts", t("Key concepts")],
+      ["qa", t("Questions & answers")],
+      ["exam", t("Exam preparation")],
+      ["mixed", t("Mixed")],
+    ],
+    cardFocus,
+    (value) => {
+      cardFocus = value;
+    },
+  );
+  const toggle = (label, hint, on) =>
+    el(
+      "label",
+      { class: "gen-check" },
+      el("input", { type: "checkbox", role: "switch", checked: on }),
+      el("span", {}, t(label), el("small", {}, t(hint))),
+    );
+  const spaced = toggle(
+      "Spaced repetition",
+      "Schedule each card for review with FSRS.",
+      saved.spaced !== false,
+    ),
+    explanations = toggle(
+      "Include explanations",
+      "Add a short explanation to every card.",
+      saved.explanations !== false,
+    ),
+    fromDeck = options.fromDeck
+      ? el(
+          "label",
+          { class: "gen-check" },
+          el("input", { type: "checkbox", role: "switch", checked: true }),
+          el(
+            "span",
+            {},
+            `${t("Based on deck:")} ${options.deckTitle || ""}`,
+            el("small", {}, t("Questions come from this deck's cards.")),
+          ),
+        )
+      : null;
   const submit = el(
     "button",
     { class: "button primary", type: "submit" },
@@ -4624,9 +4930,43 @@ function generateModal(kind, options = {}) {
         submit.disabled = true;
         status.replaceChildren(busy("Working…"));
         void action(async () => {
+          // A ticked note is snapshotted into a source first, as "Convert to
+          // source" does; a note whose snapshot is already a source is reused.
+          for (const id of pickedNotes) {
+            const file = noteSnapshot(await api("artifacts/" + id));
+            let source = state.workspace.sources.find(
+              (s) => s.title === file.name,
+            );
+            source ??= await uploadFile(file);
+            for (let i = 0; i < 80; i++) {
+              const { source: current } = await api("sources/" + source.id);
+              if (current.status === "ready") break;
+              if (["failed", "error"].includes(current.status) || i === 79)
+                throw new Error("A note could not be added as a source.");
+              await new Promise((done) => setTimeout(done, 750));
+            }
+            state.selected.add(source.id);
+          }
           const selection = aiSelection(selectedModel);
           if (!selection.sourceIds.length)
             throw new Error("Select at least one ready source.");
+          const total = Number(count.value);
+          if (
+            study &&
+            !(Number.isInteger(total) && total >= 1 && total <= maxCount)
+          )
+            throw new Error(`Choose between 1 and ${maxCount} items.`);
+          if (study)
+            store(
+              prefKey,
+              JSON.stringify({
+                count: total,
+                difficulty: level,
+                cardFocus,
+                spaced: spaced.querySelector("input").checked,
+                explanations: explanations.querySelector("input").checked,
+              }),
+            );
           await saveModel(selection.connectionId, selection.model);
           await saveEffort(selection.effort, notebookId);
           const result = await api("notebooks/" + notebookId + "/generate", {
@@ -4634,8 +4974,18 @@ function generateModal(kind, options = {}) {
             data: {
               ...selection,
               kind,
-              count: Number(count.value),
-              difficulty: difficulty.value,
+              count: total,
+              difficulty: study ? level : difficulty.value,
+              ...(study ? { cardFocus } : {}),
+              ...(kind === "flashcards"
+                ? {
+                    spaced: spaced.querySelector("input").checked,
+                    explanations: explanations.querySelector("input").checked,
+                  }
+                : {}),
+              ...(fromDeck?.querySelector("input").checked
+                ? { fromDeck: options.fromDeck }
+                : {}),
               focus:
                 (kind === "guide" ? reportFormats[format.value] + "\n" : "") +
                 (kind === "audio"
@@ -4670,19 +5020,38 @@ function generateModal(kind, options = {}) {
     ),
     kind === "guide" ? field("Report format", format) : null,
     kind === "audio" ? field("Audio format", audioFormat) : null,
-    el(
-      "div",
-      { class: "form-grid" },
-      field("Number of items", count),
-      field("Difficulty", difficulty),
-      field("Explanation language", language),
-    ),
-    field("Focus (optional)", focus),
-    el(
-      "p",
-      { class: "muted small" },
-      `${state.selected.size} ${t("Sources").toLowerCase()} selected. ${t("Your material is sent only to the provider you select.")} API charges may apply; no provider fallback is automatic.`,
-    ),
+    study
+      ? [
+          fromDeck,
+          genGroup("Sources", scope, sourceList),
+          genGroup(
+            kind === "flashcards" ? "Number of cards" : "Number of questions",
+            el(
+              "div",
+              { class: "gen-count" },
+              countChips,
+              field("Custom", count),
+            ),
+          ),
+          genGroup("Difficulty", levelChips, levelHint),
+          genGroup("Focus", focusChips),
+          kind === "flashcards"
+            ? el("div", { class: "gen-switches" }, spaced, explanations)
+            : null,
+          field("Explanation language", language),
+          field("Custom instructions (optional)", focus),
+        ]
+      : [
+          el(
+            "div",
+            { class: "form-grid" },
+            field("Number of items", count),
+            field("Difficulty", difficulty),
+            field("Explanation language", language),
+          ),
+          field("Focus (optional)", focus),
+        ],
+    sourceNote,
     status,
     el(
       "div",
@@ -4838,6 +5207,20 @@ async function openArtifact(id) {
   body.append(citationButtons(a.citations));
   modal(a.title, body);
 }
+/** The Markdown file a note becomes when it is converted to a source. */
+function noteSnapshot(a) {
+  const content =
+    `# ${a.title}\n\nNote snapshot (may contain AI-generated content; verify against the originals).\n\n${a.content.markdown}\n\n` +
+    a.citations
+      .map(
+        (c) =>
+          `[${c.id}] ${c.title} (${c.page ? "page " + c.page : "section " + c.section})`,
+      )
+      .join("\n");
+  return new File([content], a.title.slice(0, 180) + ".md", {
+    type: "text/markdown",
+  });
+}
 function convertToSource(a) {
   confirmAction(
     "Convert to source",
@@ -4845,19 +5228,7 @@ function convertToSource(a) {
       "A separate copy is added to Sources. Later edits to this note will not update the copy.",
     ),
     async () => {
-      const content =
-        `# ${a.title}\n\nNote snapshot (may contain AI-generated content; verify against the originals).\n\n${a.content.markdown}\n\n` +
-        a.citations
-          .map(
-            (c) =>
-              `[${c.id}] ${c.title} (${c.page ? "page " + c.page : "section " + c.section})`,
-          )
-          .join("\n");
-      await uploadFile(
-        new File([content], a.title.slice(0, 180) + ".md", {
-          type: "text/markdown",
-        }),
-      );
+      await uploadFile(noteSnapshot(a));
       await openNotebook(state.activeNotebook);
       state.panel = "sources";
       render();
@@ -5173,193 +5544,979 @@ function exportArtifact(a) {
     );
   download(a.title + ".json", JSON.stringify(a, null, 2), "application/json");
 }
-function flashcardModal(a, onlyDue = true) {
-  let cards = onlyDue
-      ? a.cards.filter((c) => c.due <= Date.now())
-      : [...a.cards],
-    index = 0,
-    flipped = false,
-    submitting = false;
-  const body = el("div", { class: "stack" });
-  const show = () => {
-    body.replaceChildren();
-    const c = cards[index];
-    const toolbar = el(
-      "div",
-      { class: "row wrap" },
-      button(
-        onlyDue ? "All cards" : "Due now",
-        () => flashcardModal(a, !onlyDue),
-        "small",
-      ),
-      button(
-        "Shuffle",
-        () => {
-          cards.sort(() => Math.random() - 0.5);
-          index = 0;
-          flipped = false;
-          show();
-        },
-        "small",
-      ),
-      button("Export CSV", () => exportArtifact(a), "small", "download"),
-      editOnly(button("Add card", () => editCard(a, null), "small", "plus")),
-      editOnly(button("Import CSV", () => importCards(a), "small")),
-    );
-    body.append(toolbar);
-    if (!c) {
-      body.append(
-        empty(
-          "Study session complete",
-          onlyDue ? "No cards are due." : "Review saved.",
-          button("All cards", () => flashcardModal(a, false), "primary"),
-          "check",
-        ),
-      );
-      return;
-    }
-    const progress = el(
-      "p",
-      { class: "muted small" },
-      `${index + 1} / ${cards.length} — SM-2 / interval ${Math.round(c.interval * 10) / 10} days / next ${formatDate(c.due)}`,
-    );
-    const flip = () => {
-      flipped = !flipped;
-      show();
-      body.querySelector(".flashcard")?.focus();
-    };
-    const card = el(
+/** "10 min", "1 d", "2 mo": a review interval given in days. */
+function intervalLabel(days) {
+  const minutes = Math.round(days * 1440);
+  const [value, unit] =
+    minutes < 60
+      ? [Math.max(1, minutes), "min"]
+      : minutes < 1440
+        ? [Math.round(minutes / 60), "h"]
+        : days < 30
+          ? [Math.round(days), "d"]
+          : days < 365
+            ? [Math.round(days / 30), "mo"]
+            : [Math.round((days / 365) * 10) / 10, "y"];
+  return `${value} ${t(unit)}`;
+}
+/** The AI the generate dialog would use, for the per-card AI endpoints. */
+function cardAi(extra = {}) {
+  try {
+    const { connectionId, model, effort } = aiSelection();
+    return { connectionId, model, effort, ...extra };
+  } catch {
+    return extra;
+  }
+}
+const cardFresh = (c) =>
+  c.lastRating == null &&
+  !c.repetitions &&
+  !c.lapses &&
+  !c.last_review &&
+  !c.lastReview;
+/**
+ * The flashcard study view. The card is one 3D scene whose faces are painted
+ * once per card, so flipping only toggles a class. `options.resume` restores a
+ * session after a citation or other dialog took over.
+ */
+function flashcardModal(a, options = {}) {
+  const spaced = a.spaced !== false,
+    isDue = (c) => c.due <= Date.now() || cardFresh(c),
+    filters = {
+      due: isDue,
+      missed: (c) => c.lastRating === 1,
+      flagged: (c) => Boolean(c.flagged),
+      all: () => true,
+    },
+    modeNames = {
+      due: "Due + new",
+      missed: "Missed",
+      flagged: "Flagged",
+      all: "All",
+    },
+    counts = () => ({
+      due: a.cards.filter(isDue).length,
+      missed: a.cards.filter(filters.missed).length,
+      flagged: a.cards.filter(filters.flagged).length,
+      all: a.cards.length,
+    }),
+    reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+    resume = options.resume;
+  let mode = resume?.mode || (spaced && a.cards.some(isDue) ? "due" : "all"),
+    list = resume
+      ? resume.ids.map((id) => a.cards.find((c) => c.id === id)).filter(Boolean)
+      : a.cards.filter(filters[mode]),
+    index = resume ? Math.min(resume.index, list.length) : 0,
+    flipped = Boolean(resume?.flipped) && index < list.length,
+    tally = resume?.tally || [0, 0, 0, 0],
+    swapping = false,
+    rating = false,
+    regenerating = false,
+    panelOpen = false,
+    editing = false,
+    confirming = null,
+    reveal = null,
+    rate = null,
+    flipTimer,
+    swapTimer;
+  const explained = new Map(),
+    threads = new Map(),
+    askBoxes = new Map();
+  const body = el("div", { class: "fc-study stack" });
+  const front = el("div", { class: "fc-face fc-front" }),
+    back = el("div", { class: "fc-face fc-back" });
+  const card = el(
+    "div",
+    {
+      class: "fc-card",
+      role: "button",
+      tabindex: 0,
+      "aria-pressed": "false",
+      onClick: (e) => {
+        if (!e.target.closest("button, a")) flip();
+      },
+      onKeydown: (e) => {
+        if (e.target !== card) return;
+        if (e.code === "Space" || e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          flip();
+        }
+      },
+    },
+    front,
+    back,
+  );
+  const working = el(
+    "div",
+    { class: "fc-busy", role: "status", hidden: true },
+    el("span", { class: "spinner" }),
+    t("Regenerating…"),
+  );
+  const scene = el("div", { class: "fc-scene" }, card, working);
+  const modeButtons = Object.keys(modeNames).map((m) =>
+    el("button", {
+      type: "button",
+      class: "button small",
+      "data-mode": m,
+      onClick: () => setMode(m),
+    }),
+  );
+  const countLine = el("p", { class: "fc-count", "aria-live": "polite" }),
+    bar = el("span"),
+    track = el(
       "div",
       {
-        class: "flashcard",
-        role: "button",
-        tabindex: 0,
-        "aria-label": t("Reveal answer"),
-        onClick: flip,
-        onKeydown: (e) => {
-          if (e.code === "Space" || e.key === "Enter") {
-            e.preventDefault();
-            e.stopPropagation();
-            flip();
-          }
-        },
+        class: "progress-bar",
+        role: "progressbar",
+        "aria-label": t("Progress"),
       },
-      el("span", { class: "badge" }, t(flipped ? "Back" : "Front")),
-      el("p", {}, flipped ? c.back : c.front),
-      flipped && c.explanation
-        ? el("small", { class: "muted" }, c.explanation)
-        : null,
+      bar,
+    ),
+    actions = el("div", { class: "fc-actions" }),
+    prev = el(
+      "button",
+      {
+        type: "button",
+        class: "button fc-prev",
+        "aria-label": t("Previous"),
+        onClick: () => go(index - 1),
+      },
+      icon("arrow"),
+      el("span", {}, t("Previous")),
+    ),
+    next = el(
+      "button",
+      {
+        type: "button",
+        class: "button fc-next",
+        "aria-label": t("Next"),
+        onClick: () => go(index + 1),
+      },
+      el("span", {}, t("Next")),
+      icon("arrow"),
+    ),
+    centre = el("div", { class: "fc-centre" }),
+    explainButton = el(
+      "button",
+      {
+        type: "button",
+        class: "button fc-explain-button",
+        "aria-expanded": "false",
+        "aria-controls": "fc-explain",
+        onClick: () => toggleExplain(),
+      },
+      icon("spark"),
+      el("span", {}, t("Explain")),
+    ),
+    panel = el("section", {
+      class: "fc-explain",
+      id: "fc-explain",
+      hidden: true,
+      "aria-label": t("Explain"),
+    }),
+    menu = el("div", { class: "fc-menu edit-only" }),
+    stage = el(
+      "div",
+      { class: "fc-stage stack" },
+      scene,
+      el("div", { class: "fc-nav" }, prev, centre, next),
+      actions,
+      panel,
+      menu,
+    ),
+    end = el("div", { class: "fc-end" });
+  const shuffle = () => {
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [list[i], list[j]] = [list[j], list[i]];
+    }
+    index = 0;
+    flipped = false;
+    render();
+  };
+  const setMode = (next) => {
+    if (swapping || regenerating) return;
+    mode = next;
+    list = a.cards.filter(filters[mode]);
+    index = 0;
+    flipped = false;
+    tally = [0, 0, 0, 0];
+    render();
+  };
+  const more = el("details", { class: "fc-more" });
+  const inMore = (node) => {
+    node.addEventListener("click", () => more.removeAttribute("open"));
+    return node;
+  };
+  more.append(
+    el(
+      "summary",
+      { class: "icon-button", title: t("More"), "aria-label": t("More") },
+      icon("more"),
+    ),
+    el(
+      "div",
+      { class: "fc-more-list" },
+      inMore(
+        button(
+          "Export CSV",
+          () => exportArtifact(a),
+          "quiet small",
+          "download",
+        ),
+      ),
+      inMore(
+        editOnly(button("Add card", () => addCard(a), "quiet small", "plus")),
+      ),
+      inMore(
+        editOnly(
+          button("Import CSV", () => importCards(a), "quiet small", "file"),
+        ),
+      ),
+    ),
+  );
+  const toolbar = el(
+    "div",
+    { class: "fc-toolbar" },
+    el(
+      "div",
+      { class: "fc-modes", role: "group", "aria-label": t("Study mode") },
+      modeButtons,
+    ),
+    countLine,
+    el(
+      "div",
+      { class: "fc-tools" },
+      iconButton("shuffle", "Shuffle", shuffle),
+      iconButton("refresh", "Restart", () => setMode(mode)),
+      more,
+    ),
+  );
+  body.append(toolbar, track, stage, end);
+  const cardLabel = () => {
+    const c = list[index];
+    return c
+      ? `${t(flipped ? "Answer" : "Question")}: ${flipped ? c.back : c.front}. ${t("Press Space to flip")}`
+      : "";
+  };
+  /** Mirror `flipped` onto the card; `instant` skips the rotation. */
+  const syncFlip = (instant) => {
+    if (instant) card.classList.add("fc-instant");
+    card.classList.toggle("is-flipped", flipped);
+    if (instant) {
+      void card.offsetWidth;
+      card.classList.remove("fc-instant");
+    }
+    card.setAttribute("aria-pressed", String(flipped));
+    card.setAttribute("aria-label", cardLabel());
+    front.inert = flipped;
+    back.inert = !flipped;
+    front.setAttribute("aria-hidden", String(flipped));
+    back.setAttribute("aria-hidden", String(!flipped));
+    if (reveal) reveal.hidden = flipped;
+    if (rate) rate.hidden = !flipped;
+    explainButton.hidden = !flipped;
+  };
+  const flip = () => {
+    if (swapping || regenerating || !list[index]) return;
+    flipped = !flipped;
+    card.classList.add("is-flipping");
+    clearTimeout(flipTimer);
+    flipTimer = setTimeout(() => card.classList.remove("is-flipping"), 600);
+    syncFlip();
+  };
+  const renderModes = () => {
+    const n = counts();
+    for (const b of modeButtons) {
+      const m = b.dataset.mode;
+      b.replaceChildren(t(modeNames[m]), " ", el("b", {}, n[m]));
+      b.setAttribute("aria-pressed", String(m === mode));
+      b.disabled = n[m] === 0 && m !== mode;
+    }
+  };
+  const paintProgress = () => {
+    countLine.textContent = t("Card {n} of {total}")
+      .replace("{n}", index + 1)
+      .replace("{total}", list.length);
+    bar.style.width = ((index + 1) / list.length) * 100 + "%";
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", String(list.length));
+    track.setAttribute("aria-valuenow", String(index + 1));
+    prev.disabled = index === 0;
+  };
+  const rateButtons = (c) =>
+    (spaced
+      ? [
+          [1, "Again", "again"],
+          [2, "Hard", "hard"],
+          [3, "Good", "good"],
+          [4, "Easy", "easy"],
+        ]
+      : [
+          [1, "Study again", "again"],
+          [3, "Know it", "good"],
+        ]
+    ).map(([value, name, key]) =>
       el(
-        "small",
-        { class: "muted" },
-        flipped
-          ? "1 Again / 2 Hard / 3 Good / 4 Easy"
-          : t("Reveal answer") + " (Space)",
+        "button",
+        {
+          type: "button",
+          class: "button fc-rate-button" + (value === 3 ? " primary" : ""),
+          "data-rating": value,
+          onClick: () => void grade(value),
+        },
+        el("span", { class: "fc-rate-name" }, t(name)),
+        spaced && c.preview
+          ? el(
+              "span",
+              { class: "fc-rate-interval" },
+              intervalLabel(c.preview[key]),
+            )
+          : null,
+        el("kbd", {}, value),
       ),
     );
-    const grade = async (value) => {
-      if (submitting || !flipped) return;
-      submitting = true;
-      try {
-        const next = await api("cards/" + c.id + "/review", {
-          method: "POST",
-          data: { grade: value },
-        });
-        Object.assign(c, next);
-        index++;
-        flipped = false;
-        show();
-        body.querySelector(".flashcard")?.focus();
-      } catch (error) {
-        toast(error.message, true);
-      } finally {
-        submitting = false;
-      }
-    };
-    body.append(
-      progress,
-      card,
-      ...(!flipped && c.hint
-        ? [button("Show hint", () => toast(c.hint), "quiet small")]
-        : []),
-      flipped
-        ? el(
-            "div",
-            { class: "review-actions edit-only" },
-            [
-              ["Again", 1],
-              ["Hard", 3],
-              ["Good", 4],
-              ["Easy", 5],
-            ].map(([label, value]) =>
-              button(
-                label,
-                () => void grade(value),
-                value === 4 ? "primary" : "",
-              ),
-            ),
-          )
-        : button("Reveal answer", flip, "primary"),
+  /** Paint the faces, controls and menu for the current card (not on flip). */
+  const paintCard = () => {
+    const c = list[index];
+    const flag = c.flagged
+      ? el("span", { class: "badge fc-flag" }, t("Flagged"))
+      : null;
+    const hint = el("p", { class: "fc-hint", hidden: true }, c.hint);
+    const refs = a.citations.filter((ref) => c.refs.includes(ref.id));
+    const fill = (node, ...kids) =>
+      node.replaceChildren(...kids.filter(Boolean));
+    fill(
+      front,
       el(
         "div",
-        { class: "row wrap" },
-        editOnly(
-          button("Edit card", () => editCard(a, c), "quiet small", "edit"),
+        { class: "fc-top" },
+        el("span", { class: "badge" }, t("Front")),
+        flag,
+      ),
+      el("p", { class: "fc-text" }, c.front),
+      c.hint
+        ? el(
+            "div",
+            { class: "fc-hint-wrap" },
+            button(
+              "Show hint",
+              (e) => {
+                e.currentTarget.hidden = true;
+                hint.hidden = false;
+              },
+              "quiet small",
+            ),
+            hint,
+          )
+        : null,
+      el("span", { class: "fc-tip" }, icon("refresh"), t("Tap to flip")),
+    );
+    fill(
+      back,
+      el(
+        "div",
+        { class: "fc-top" },
+        el("span", { class: "badge" }, t("Back")),
+        flag?.cloneNode(true),
+      ),
+      el("p", { class: "fc-text" }, c.back),
+      c.explanation ? el("p", { class: "fc-note" }, c.explanation) : null,
+      refs.length ? citationButtons(refs) : null,
+    );
+    reveal = button("Reveal answer", () => flip(), "primary");
+    rate = canEdit() ? el("div", { class: "fc-rate" }, rateButtons(c)) : null;
+    fill(centre, reveal, explainButton);
+    fill(actions, rate);
+    syncFlip(true);
+    renderMenu();
+  };
+  const render = () => {
+    clearTimeout(swapTimer);
+    swapping = false;
+    scene.className = "fc-scene";
+    renderModes();
+    panelOpen = false;
+    editing = false;
+    confirming = null;
+    panel.hidden = true;
+    explainButton.setAttribute("aria-expanded", "false");
+    const done = list.length > 0 && index >= list.length;
+    stage.hidden = !list.length || done;
+    countLine.hidden = track.hidden = stage.hidden;
+    end.hidden = !stage.hidden;
+    end.replaceChildren();
+    if (!stage.hidden) {
+      paintProgress();
+      paintCard();
+    } else end.append(done ? summary() : emptyView());
+  };
+  const emptyView = () =>
+    empty(
+      mode === "all" ? "This deck has no cards yet." : "Study session complete",
+      mode === "all"
+        ? "Add a card or import a CSV to start."
+        : mode === "missed"
+          ? "No missed cards."
+          : "No cards are due.",
+      mode === "all"
+        ? null
+        : button("Study all cards", () => setMode("all"), "primary"),
+      "check",
+    );
+  const summary = () => {
+    const n = counts(),
+      names = spaced
+        ? ["Again", "Hard", "Good", "Easy"]
+        : ["Study again", null, "Know it", null];
+    return el(
+      "div",
+      { class: "fc-summary stack" },
+      icon("check"),
+      el("h2", {}, t("Study session complete")),
+      el(
+        "p",
+        { class: "muted" },
+        `${t("Cards reviewed")}: ${tally.reduce((sum, x) => sum + x, 0)}`,
+      ),
+      el(
+        "div",
+        { class: "fc-tally" },
+        names.map((name, i) =>
+          name
+            ? el("div", {}, el("strong", {}, tally[i]), el("span", {}, t(name)))
+            : null,
+        ),
+      ),
+      el(
+        "div",
+        { class: "row wrap fc-end-actions" },
+        n.missed
+          ? button("Review missed cards", () => setMode("missed"), "primary")
+          : null,
+        button(
+          "Study all cards",
+          () => setMode("all"),
+          n.missed ? "" : "primary",
         ),
         editOnly(
           button(
-            "Flag for correction",
-            () =>
-              action(async () => {
-                await api("cards/" + c.id, {
-                  method: "PATCH",
-                  data: { flagged: !c.flagged },
-                });
-                c.flagged = !c.flagged;
-                toast(c.flagged ? "Card flagged." : "Flag removed.");
-              }),
-            "quiet small",
+            "Make a quiz from this deck",
+            () => generateModal("quiz", { fromDeck: a.id, deckTitle: a.title }),
+            "",
+            "quiz",
           ),
         ),
-        button(
-          "Next",
-          () => {
-            index++;
-            flipped = false;
-            show();
-          },
-          "quiet small",
-        ),
+        button("Close", () => $("#dialog").close()),
       ),
-      citationButtons(a.citations.filter((ref) => c.refs.includes(ref.id))),
     );
-    const keydown = (e) => {
-      if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
-      if (e.code === "Space" && e.target !== card) {
-        e.preventDefault();
-        flip();
-      }
-      if (flipped && /^[1-4]$/.test(e.key))
-        void grade([1, 3, 4, 5][Number(e.key) - 1]);
-    };
-    body.onkeydown = keydown;
   };
-  show();
-  modal(a.title, body);
-}
-function editCard(a, c) {
-  const front = el("textarea", {
-      required: true,
-      maxlength: 12000,
-      value: c?.front || "",
-    }),
-    back = el("textarea", {
-      required: true,
-      maxlength: 12000,
-      value: c?.back || "",
+  /** Slide to another card, or to the summary after the last one. */
+  const go = (to) => {
+    if (swapping || regenerating || to < 0 || to > list.length || to === index)
+      return;
+    const dir = to > index ? "next" : "prev",
+      instant = reduced();
+    swapping = true;
+    scene.className = "fc-scene fc-out-" + dir;
+    swapTimer = setTimeout(
+      () => {
+        index = to;
+        flipped = false;
+        if (index >= list.length) return render();
+        panelOpen = false;
+        editing = false;
+        confirming = null;
+        panel.hidden = true;
+        explainButton.setAttribute("aria-expanded", "false");
+        paintProgress();
+        paintCard();
+        scene.className = "fc-scene fc-in-" + dir;
+        swapTimer = setTimeout(
+          () => {
+            scene.className = "fc-scene";
+            swapping = false;
+            const f = document.activeElement;
+            if (!f || !body.contains(f) || f.closest("[hidden]"))
+              card.focus({ preventScroll: true });
+          },
+          instant ? 0 : 150,
+        );
+      },
+      instant ? 0 : 120,
+    );
+  };
+  const grade = async (value) => {
+    const c = list[index];
+    if (!c || !flipped || swapping || rating || regenerating || !canEdit())
+      return;
+    rating = true;
+    rate?.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    try {
+      const result = await api("cards/" + c.id + "/review", {
+        method: "POST",
+        data: { rating: value },
+      });
+      Object.assign(c, result, { lastRating: value });
+      tally[value - 1]++;
+      renderModes();
+      go(index + 1);
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      rating = false;
+      rate?.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    }
+  };
+  // --- Explain panel and Ask Folio AI -------------------------------------
+  const asCitations = (cites) =>
+    cites.map((cite) => ({
+      ...cite,
+      id: cite.ref,
+      text:
+        a.citations.find(
+          (d) =>
+            d.sourceId === cite.sourceId &&
+            (d.page ?? null) === (cite.page ?? null) &&
+            (d.section ?? null) === (cite.section ?? null),
+        )?.text || t("Open the source to read this passage."),
+    }));
+  const addFollowUp = ({ front: question, back: answer }) =>
+    action(async () => {
+      await api("artifacts/" + a.id + "/cards", {
+        method: "POST",
+        data: { front: question, back: answer },
+      });
+      const fresh = await api("artifacts/" + a.id);
+      for (const c of fresh.cards)
+        if (!a.cards.some((old) => old.id === c.id)) a.cards.push(c);
+      renderModes();
+      toast("Card added.");
+      return true;
     });
+  const explainParts = (data) =>
+    el(
+      "div",
+      { class: "fc-parts" },
+      [
+        ["Why this answer is correct", data.why],
+        ["Detailed understanding", data.detail],
+        ["Simple explanation", data.simple],
+        ["Practical example", data.example],
+      ].map(([label, text]) =>
+        text
+          ? el(
+              "section",
+              { class: "fc-part" },
+              el("h4", {}, t(label)),
+              markdown(text, asCitations(data.citations || [])),
+            )
+          : null,
+      ),
+      el(
+        "section",
+        { class: "fc-part" },
+        el("h4", {}, t("Source reference")),
+        data.citations?.length
+          ? citationButtons(asCitations(data.citations))
+          : el(
+              "p",
+              { class: "muted small" },
+              t("No source passage was cited."),
+            ),
+      ),
+      data.takeaway
+        ? el(
+            "section",
+            { class: "fc-part fc-takeaway" },
+            el("h4", {}, t("Key takeaway")),
+            markdown(data.takeaway, asCitations(data.citations || [])),
+          )
+        : null,
+      data.followUp
+        ? editOnly(
+            el(
+              "div",
+              { class: "fc-followup" },
+              el("p", { class: "small" }, data.followUp.front),
+              button(
+                "Add as a new card",
+                async (e) => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  if (!(await addFollowUp(data.followUp))) btn.disabled = false;
+                },
+                "small",
+                "plus",
+              ),
+            ),
+          )
+        : null,
+    );
+  const askBox = (c) => {
+    const turns = threads.get(c.id) || [];
+    threads.set(c.id, turns);
+    let pending = false,
+      failure = "";
+    const log = el("div", {
+        class: "fc-thread",
+        role: "log",
+        "aria-live": "polite",
+      }),
+      input = el("input", {
+        type: "text",
+        maxlength: 1000,
+        placeholder: t("Ask a follow-up question"),
+        "aria-label": t("Ask Folio AI"),
+      }),
+      send = el(
+        "button",
+        { type: "submit", class: "button primary small" },
+        icon("send"),
+        el("span", {}, t("Send")),
+      );
+    const draw = () => {
+      log.replaceChildren(
+        ...turns.map((turn) =>
+          el(
+            "div",
+            { class: "fc-turn " + turn.role },
+            turn.role === "user"
+              ? el("p", {}, turn.text)
+              : markdown(turn.text, turn.citations),
+          ),
+        ),
+        ...(pending ? [busy("Working…")] : []),
+        ...(failure
+          ? [el("p", { class: "notice error", role: "alert" }, failure)]
+          : []),
+      );
+      send.disabled = pending;
+    };
+    draw();
+    return el(
+      "div",
+      { class: "fc-ask stack" },
+      el("h4", {}, t("Ask Folio AI")),
+      log,
+      el(
+        "form",
+        {
+          class: "fc-ask-form",
+          onSubmit: async (e) => {
+            e.preventDefault();
+            const question = input.value.trim();
+            if (!question || pending) return;
+            const history = turns
+              .slice(-6)
+              .map(({ role, text }) => ({ role, text: text.slice(0, 1000) }));
+            turns.push({ role: "user", text: question });
+            input.value = "";
+            pending = true;
+            failure = "";
+            draw();
+            try {
+              const reply = await api("cards/" + c.id + "/explain", {
+                method: "POST",
+                data: cardAi({ question, history }),
+              });
+              turns.push({
+                role: "assistant",
+                text: reply.answer,
+                citations: asCitations(reply.citations || []),
+              });
+            } catch (error) {
+              failure = error.message;
+            } finally {
+              pending = false;
+              draw();
+            }
+          },
+        },
+        input,
+        send,
+      ),
+    );
+  };
+  const renderPanel = () => {
+    const c = list[index];
+    panel.replaceChildren();
+    if (!c || !panelOpen) return;
+    const entry = explained.get(c.id);
+    if (!askBoxes.has(c.id)) askBoxes.set(c.id, askBox(c));
+    panel.append(
+      el("h3", {}, t("Explain")),
+      !entry || entry.status === "loading"
+        ? busy("Explaining…")
+        : entry.status === "error"
+          ? el(
+              "div",
+              { class: "stack" },
+              el("p", { class: "notice error", role: "alert" }, entry.message),
+              button(
+                "Try again",
+                () => {
+                  explained.delete(c.id);
+                  void loadExplain(c);
+                },
+                "small",
+              ),
+            )
+          : explainParts(entry.data),
+      askBoxes.get(c.id),
+    );
+  };
+  const loadExplain = async (c) => {
+    if (explained.get(c.id)) return;
+    explained.set(c.id, { status: "loading" });
+    renderPanel();
+    try {
+      const data = await api("cards/" + c.id + "/explain", {
+        method: "POST",
+        data: cardAi(),
+      });
+      explained.set(c.id, { status: "done", data });
+    } catch (error) {
+      explained.set(c.id, { status: "error", message: error.message });
+    }
+    if (list[index] === c) renderPanel();
+  };
+  const toggleExplain = () => {
+    if (!flipped || swapping || !list[index]) return;
+    panelOpen = !panelOpen;
+    panel.hidden = !panelOpen;
+    explainButton.setAttribute("aria-expanded", String(panelOpen));
+    if (panelOpen) void loadExplain(list[index]);
+    renderPanel();
+  };
+  // --- Per-card menu: edit, regenerate, flag, delete ----------------------
+  const regenerate = async (c, instructions) => {
+    confirming = null;
+    regenerating = true;
+    working.hidden = false;
+    card.classList.add("is-busy");
+    renderMenu();
+    try {
+      Object.assign(
+        c,
+        await api("cards/" + c.id + "/regenerate", {
+          method: "POST",
+          data: cardAi(instructions ? { instructions } : {}),
+        }),
+      );
+      explained.delete(c.id);
+      askBoxes.delete(c.id);
+      toast("Card regenerated.");
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      regenerating = false;
+      working.hidden = true;
+      card.classList.remove("is-busy");
+    }
+    if (list[index] === c) {
+      paintCard();
+      renderPanel();
+    }
+  };
+  const editForm = (c) => {
+    const frontField = el("textarea", {
+        required: true,
+        maxlength: 12000,
+        value: c.front,
+      }),
+      backField = el("textarea", {
+        required: true,
+        maxlength: 12000,
+        value: c.back,
+      }),
+      hintField = el("input", { maxlength: 1000, value: c.hint || "" }),
+      noteField = el("textarea", {
+        maxlength: 2000,
+        value: c.explanation || "",
+      });
+    return el(
+      "form",
+      {
+        class: "fc-edit stack",
+        onSubmit: (e) => {
+          e.preventDefault();
+          void action(async () => {
+            const changes = {
+              front: frontField.value,
+              back: backField.value,
+              hint: hintField.value,
+              explanation: noteField.value,
+            };
+            await api("cards/" + c.id, { method: "PATCH", data: changes });
+            if (changes.front !== c.front || changes.back !== c.back) {
+              explained.delete(c.id);
+              c.hasDetail = false;
+            }
+            Object.assign(c, changes);
+            editing = false;
+            paintCard();
+            renderPanel();
+            toast("Card updated.");
+          });
+        },
+      },
+      field("Front", frontField),
+      field("Back", backField),
+      field("Hint (optional)", hintField),
+      field("Explanation (optional)", noteField),
+      el(
+        "div",
+        { class: "row wrap" },
+        el(
+          "button",
+          { type: "submit", class: "button primary small" },
+          t("Save"),
+        ),
+        button("Cancel", () => choose(null), "small"),
+      ),
+    );
+  };
+  const choose = (next) => {
+    confirming = next;
+    editing = next === "edit";
+    renderMenu();
+  };
+  const renderMenu = () => {
+    const c = list[index];
+    menu.replaceChildren();
+    if (!c) return;
+    if (editing) return menu.append(editForm(c));
+    if (confirming === "delete")
+      return menu.append(
+        el("p", { class: "small" }, t("Delete this card?")),
+        button("Cancel", () => choose(null), "small"),
+        button(
+          "Delete",
+          () =>
+            action(async () => {
+              await api("cards/" + c.id, { method: "DELETE" });
+              a.cards = a.cards.filter((x) => x !== c);
+              list.splice(index, 1);
+              index = Math.max(0, Math.min(index, list.length - 1));
+              flipped = false;
+              render();
+            }),
+          "small danger",
+          "trash",
+        ),
+      );
+    if (confirming === "regenerate") {
+      const instructions = el("input", {
+        maxlength: 1000,
+        "aria-label": t("Instructions (optional)"),
+        placeholder: t("Instructions (optional)"),
+      });
+      return menu.append(
+        el(
+          "p",
+          { class: "small" },
+          t(
+            "Folio AI rewrites this card from your sources. Your review history is kept.",
+          ),
+        ),
+        instructions,
+        button("Cancel", () => choose(null), "small"),
+        button(
+          "Regenerate",
+          () => void regenerate(c, instructions.value.trim()),
+          "small primary",
+          "wand",
+        ),
+      );
+    }
+    menu.append(
+      button("Edit", () => choose("edit"), "quiet small", "edit"),
+      button("Regenerate", () => choose("regenerate"), "quiet small", "wand"),
+      button(
+        c.flagged ? "Unflag" : "Flag",
+        () =>
+          action(async () => {
+            await api("cards/" + c.id, {
+              method: "PATCH",
+              data: { flagged: !c.flagged },
+            });
+            c.flagged = !c.flagged;
+            toast(c.flagged ? "Card flagged." : "Flag removed.");
+            renderModes();
+            paintCard();
+          }),
+        "quiet small",
+        "pin",
+      ),
+      button("Delete", () => choose("delete"), "quiet small danger", "trash"),
+    );
+  };
+  render();
+  const dialog = modal(a.title, body);
+  const snapshot = () => ({
+    mode,
+    ids: list.map((c) => c.id),
+    index,
+    flipped,
+    tally: [...tally],
+  });
+  // A citation replaces this dialog; closing that citation restores the
+  // session. The listener exists only while this very citation dialog is open
+  // and removes itself on the first close, whatever closed it.
+  body.addEventListener("click", (e) => {
+    if (!e.target.closest(".citation, .citation-source")) return;
+    const resumeAt = snapshot();
+    let citation = null;
+    const restore = () => {
+      const current = dialog.querySelector(".dialog-body");
+      if (dialog.open) {
+        // The close event of this deck being replaced by the citation, or of
+        // the citation being replaced by something else.
+        if (!citation && !body.isConnected) citation = current;
+        else if (citation !== current)
+          dialog.removeEventListener("close", restore);
+        return;
+      }
+      dialog.removeEventListener("close", restore);
+      if (citation?.isConnected) flashcardModal(a, { resume: resumeAt });
+    };
+    dialog.addEventListener("close", restore);
+  });
+  const keydown = (e) => {
+    if (!body.isConnected || !dialog.open) return off();
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.closest?.("input,textarea,select,[contenteditable=true]"))
+      return;
+    if (!list.length || index >= list.length) return;
+    if (e.key === "ArrowRight") go(index + 1);
+    else if (e.key === "ArrowLeft") go(index - 1);
+    else if (e.key === " " && !e.target.closest?.("button,a,summary")) flip();
+    else if (flipped && /^[1-4]$/.test(e.key)) {
+      const value = Number(e.key);
+      if (spaced || value === 1 || value === 3) void grade(value);
+    } else if (flipped && e.key.toLowerCase() === "e") toggleExplain();
+    else return;
+    e.preventDefault();
+  };
+  const off = () => {
+    document.removeEventListener("keydown", keydown);
+    dialog.removeEventListener("close", closed);
+    clearTimeout(flipTimer);
+    clearTimeout(swapTimer);
+  };
+  const closed = () => {
+    if (!body.isConnected || !dialog.open) off();
+  };
+  document.addEventListener("keydown", keydown);
+  dialog.addEventListener("close", closed);
+}
+function addCard(a) {
+  const front = el("textarea", { required: true, maxlength: 12000 }),
+    back = el("textarea", { required: true, maxlength: 12000 });
   modal(
-    c ? "Edit card" : "Add card",
+    "Add card",
     el(
       "form",
       {
@@ -5367,8 +6524,8 @@ function editCard(a, c) {
         onSubmit: (e) => {
           e.preventDefault();
           void action(async () => {
-            await api(c ? "cards/" + c.id : "artifacts/" + a.id + "/cards", {
-              method: c ? "PATCH" : "POST",
+            await api("artifacts/" + a.id + "/cards", {
+              method: "POST",
               data: { front: front.value, back: back.value },
             });
             await openArtifact(a.id);
@@ -5380,17 +6537,6 @@ function editCard(a, c) {
       el(
         "div",
         { class: "dialog-actions" },
-        c
-          ? button(
-              "Delete",
-              () =>
-                confirmAction("Delete", c.front, async () => {
-                  await api("cards/" + c.id, { method: "DELETE" });
-                  await openArtifact(a.id);
-                }),
-              "danger",
-            )
-          : null,
         el("button", { type: "submit", class: "button primary" }, t("Save")),
       ),
     ),
@@ -5514,7 +6660,7 @@ function quizModal(a) {
             data: { answers: slots },
           });
           localStorage.removeItem(key);
-          quizResults(a, result);
+          quizResults(a, result, slots);
           await refreshData();
         });
       },
@@ -5527,7 +6673,7 @@ function quizModal(a) {
     questions.map((q, i) =>
       el(
         "fieldset",
-        { class: "quiz-question" },
+        { class: "quiz-question", style: `--i:${Math.min(i, 8)}` },
         el("legend", {}, `${i + 1}. ${q.question}`),
         q.options.map((option, j) =>
           el(
@@ -5561,7 +6707,19 @@ function quizModal(a) {
   );
   modal(a.title, body);
 }
-function quizResults(a, result) {
+function quizResults(a, result, answers) {
+  const missed = result.results.some((r) => !r.correct);
+  const makeCards = () =>
+    action(async () => {
+      const deck = await api("artifacts/" + a.id + "/flashcards", {
+        method: "POST",
+        data: result.id ? { attemptId: result.id } : { answers },
+      });
+      await openNotebook(state.activeNotebook);
+      await refreshData();
+      toast("Flashcards created from your missed answers.");
+      await openArtifact(deck.id);
+    });
   const body = el(
     "div",
     { class: "stack" },
@@ -5569,7 +6727,21 @@ function quizResults(a, result) {
       "div",
       { class: "row between wrap" },
       el("h2", {}, `${result.percentage}% — ${result.correct}/${result.total}`),
-      button("Retake quiz", () => quizModal(a), "small"),
+      el(
+        "div",
+        { class: "row wrap" },
+        missed
+          ? editOnly(
+              button(
+                "Make flashcards from missed answers",
+                makeCards,
+                "small",
+                "cards",
+              ),
+            )
+          : null,
+        button("Retake quiz", () => quizModal(a), "small"),
+      ),
     ),
     result.reviewTopics.length
       ? el(
@@ -5582,8 +6754,16 @@ function quizResults(a, result) {
     result.results.map((r, i) =>
       el(
         "section",
-        { class: "quiz-result " + (r.correct ? "correct" : "incorrect") },
-        el("span", { class: "badge" }, t(r.correct ? "Correct" : "Incorrect")),
+        {
+          class: "quiz-result " + (r.correct ? "correct" : "incorrect"),
+          style: `--i:${Math.min(i, 8)}`,
+        },
+        el(
+          "span",
+          { class: "badge" },
+          icon(r.correct ? "check" : "close"),
+          t(r.correct ? "Correct" : "Incorrect"),
+        ),
         el("h3", {}, `${i + 1}. ${r.question}`),
         el(
           "p",
@@ -6089,7 +7269,7 @@ function settingsView() {
       el(
         "p",
         { class: "muted small" },
-        "Available: notebook sources, YouTube video transcripts, cited chat,guides, flashcards with SM-2, multiple-choice quizzes, mind maps, Markdown notes, data tables, exports, read-only sharing, study groups and communities.",
+        "Available: notebook sources, YouTube video transcripts, cited chat,guides, flashcards with FSRS spaced repetition and AI explanations, multiple-choice quizzes, turning missed quiz answers into flashcards and flashcard decks into quizzes, mind maps, Markdown notes, data tables, exports, read-only sharing, study groups and communities.",
       ),
       el(
         "p",
@@ -6109,6 +7289,65 @@ async function libraryData(kind) {
     }),
   );
   return all.flat();
+}
+/** Cards due and the concepts missed most, from quizzes and flashcards alike. */
+function learningStats() {
+  const p = state.progress,
+    weak = p.weakConcepts || [];
+  return el(
+    "section",
+    { class: "panel stack fc-stats" },
+    el(
+      "div",
+      { class: "fc-stat" },
+      el("strong", {}, p.dueCards ?? 0),
+      el("span", { class: "muted" }, t("Cards due")),
+      p.newCards
+        ? el("span", { class: "muted" }, `· ${p.newCards} ${t("New")}`)
+        : null,
+    ),
+    el("h2", {}, t("Weak concepts")),
+    weak.length
+      ? el(
+          "ul",
+          { class: "fc-weak" },
+          weak.map((w) =>
+            el(
+              "li",
+              { class: "fc-weak-row" },
+              el(
+                "button",
+                {
+                  type: "button",
+                  class: "fc-weak-link",
+                  onClick: () => nav("notebook/" + w.notebookId),
+                },
+                el("span", { class: "grow" }, w.label),
+                el(
+                  "span",
+                  { class: "badge" },
+                  t(w.source === "quiz" ? "Quiz" : "Cards"),
+                ),
+                el("small", { class: "muted" }, w.count + "×"),
+              ),
+              button(
+                "Practice",
+                () =>
+                  action(async () => {
+                    await openNotebook(w.notebookId);
+                    generateModal("quiz", {
+                      difficulty: "adaptive",
+                      instructions: `${t("Focus on")}: ${w.label}`,
+                    });
+                  }),
+                "small",
+                "quiz",
+              ),
+            ),
+          ),
+        )
+      : el("p", { class: "muted small" }, t("No weak concepts yet.")),
+  );
 }
 function libraryView() {
   const kind = state.page === "quizzes" ? "quiz" : "flashcards",
@@ -6130,7 +7369,16 @@ function libraryView() {
                   ? el(
                       "small",
                       { class: "muted" },
-                      `${a.cards.filter((c) => c.due <= Date.now()).length} ${t("Due now").toLowerCase()} / ${a.cards.length} ${t("Cards").toLowerCase()}`,
+                      // Decks without spaced repetition have no due dates.
+                      (a.spaced === false
+                        ? []
+                        : [
+                            `${a.cards.filter((c) => !cardFresh(c) && c.due <= Date.now()).length} ${t("Due now").toLowerCase()}`,
+                            `${a.cards.filter(cardFresh).length} ${t("New").toLowerCase()}`,
+                          ]
+                      )
+                        .concat(`${a.cards.length} ${t("Cards").toLowerCase()}`)
+                        .join(" / "),
                     )
                   : null,
               ),
@@ -6166,6 +7414,7 @@ function libraryView() {
           : "Flashcards",
       "Progress comes from practice.",
     ),
+    learningStats(),
     container,
   );
 }
