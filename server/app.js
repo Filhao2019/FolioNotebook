@@ -652,7 +652,7 @@ export async function createApp(options = {}) {
     }
     limiter.take(`ip:${req.socket.remoteAddress}`, ipRequestLimit);
     if (path[0] === "health")
-      return json(res, { status: "ok", version: "0.3.5" });
+      return json(res, { status: "ok", version: "0.4.0" });
     if (
       path[0] === "auth" &&
       ["register", "login", "guest"].includes(path[1]) &&
