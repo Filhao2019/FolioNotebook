@@ -692,6 +692,85 @@ export async function createApp(options = {}) {
         return res.end();
       }
     }
+    if (path[0] === "collections") {
+      // Collections are a learner's private grouping of notebooks they can open.
+      const name = z.object({ name: z.string().trim().min(1).max(80) });
+      if (path.length === 1 && method === "GET") {
+        const links = db.all(
+          "SELECT cn.collection_id,cn.notebook_id FROM collection_notebooks cn JOIN collections c ON c.id=cn.collection_id WHERE c.user_id=? ORDER BY cn.rowid",
+          user,
+        );
+        return json(
+          res,
+          db
+            .all(
+              "SELECT id,name FROM collections WHERE user_id=? ORDER BY rowid",
+              user,
+            )
+            .map((c) => ({
+              ...c,
+              notebookIds: links
+                .filter((l) => l.collection_id === c.id)
+                .map((l) => l.notebook_id),
+            })),
+        );
+      }
+      if (path.length === 1 && method === "POST") {
+        const input = name.parse(await body(req));
+        assert(
+          db.get(
+            "SELECT COUNT(*) AS count FROM collections WHERE user_id=?",
+            user,
+          ).count < 50,
+          400,
+          "Collection limit reached (50).",
+        );
+        const id = randomUUID();
+        db.run(
+          "INSERT INTO collections(id,user_id,name) VALUES(?,?,?)",
+          id,
+          user,
+          input.name,
+        );
+        return json(res, { id }, 201);
+      }
+      const collection = db.get(
+        "SELECT * FROM collections WHERE id=? AND user_id=?",
+        path[1],
+        user,
+      );
+      assert(collection, 404, "This item is unavailable.");
+      if (path.length === 2 && method === "PATCH") {
+        const input = name.parse(await body(req));
+        db.run(
+          "UPDATE collections SET name=? WHERE id=?",
+          input.name,
+          collection.id,
+        );
+        return json(res, { ok: true });
+      }
+      if (path.length === 2 && method === "DELETE") {
+        db.run("DELETE FROM collections WHERE id=?", collection.id);
+        return json(res, { ok: true });
+      }
+      if (path[2] === "notebooks" && path.length === 4 && method === "PUT") {
+        const notebook = owned("notebooks", path[3], user, "view");
+        db.run(
+          "INSERT OR IGNORE INTO collection_notebooks(collection_id,notebook_id) VALUES(?,?)",
+          collection.id,
+          notebook.id,
+        );
+        return json(res, { ok: true });
+      }
+      if (path[2] === "notebooks" && path.length === 4 && method === "DELETE") {
+        db.run(
+          "DELETE FROM collection_notebooks WHERE collection_id=? AND notebook_id=?",
+          collection.id,
+          path[3],
+        );
+        return json(res, { ok: true });
+      }
+    }
     if (path[0] === "graph" && path.length === 1 && method === "GET")
       return json(
         res,
@@ -762,7 +841,7 @@ export async function createApp(options = {}) {
             notebook.user_id,
           ),
           sources: db.all(
-            "SELECT id,title,format,status,error,created FROM sources WHERE notebook_id=? ORDER BY created",
+            "SELECT id,title,format,status,error,created,topic FROM sources WHERE notebook_id=? ORDER BY created",
             notebook.id,
           ),
           messages: db
@@ -1053,6 +1132,8 @@ export async function createApp(options = {}) {
                 "slides",
                 "audio",
                 "questions",
+                "labels",
+                "infographic",
               ])
               .optional(),
             count: z.number().int().min(1).max(30).default(8),
@@ -1133,10 +1214,21 @@ export async function createApp(options = {}) {
               400,
               "No source text is available.",
             );
+            // Topic labels refer to sources by their number in this list.
+            const labelSources =
+              input.kind === "labels"
+                ? db.all(
+                    `SELECT id,title FROM sources WHERE notebook_id=? AND status='ready' AND id IN (${input.sourceIds.map(() => "?").join(",")}) ORDER BY created,rowid`,
+                    notebook.id,
+                    ...input.sourceIds,
+                  )
+                : [];
             const prompt =
-              input.kind === "questions"
-                ? `Suggest three short questions a learner could ask next about these sources. Each must be answerable from the sources, cover a different idea, and be under 120 characters. Write them in the response language. Return ONLY valid JSON in this exact structure: ${shapes.questions}.`
-                : `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}. Return ONLY valid JSON in this exact structure: ${shapes[input.kind]}. Cite each item using refs. Do not invent facts. For quizzes, answer is a zero-based option index. For mind maps, use one root, unique IDs, no cycles. For slides, create a clear teaching sequence with concise bullet points, speaker notes, and source refs on each slide. Produce text slides only; do not claim generated images or audio. For audio, write a lively, natural two-host conversation (A explains, B asks and connects ideas) about the sources, 14 to 40 lines, each line one or two spoken sentences with no markdown; set count as a rough guide to the number of key ideas covered.`;
+              input.kind === "labels"
+                ? `Label each source below with one short topic of one to three words, written in the response language. Give related sources the same topic and use at most six different topics. Sources: ${labelSources.map((s, i) => `${i + 1}. ${JSON.stringify(s.title)}`).join("; ")}. Return ONLY valid JSON in this exact structure: ${shapes.labels}, where source is the source number from this list.`
+                : input.kind === "questions"
+                  ? `Suggest three short questions a learner could ask next about these sources. Each must be answerable from the sources, cover a different idea, and be under 120 characters. Write them in the response language. Return ONLY valid JSON in this exact structure: ${shapes.questions}.`
+                  : `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}. Return ONLY valid JSON in this exact structure: ${shapes[input.kind]}. Cite each item using refs. Do not invent facts. For quizzes, answer is a zero-based option index. For mind maps, use one root, unique IDs, no cycles. For slides, create a clear teaching sequence with concise bullet points, speaker notes, and source refs on each slide. Produce text slides only; do not claim generated images or audio. For audio, write a lively, natural two-host conversation (A explains, B asks and connects ideas) about the sources, 14 to 40 lines, each line one or two spoken sentences with no markdown; set count as a rough guide to the number of key ideas covered. For infographics, write a one-page visual summary: up to four stats whose value is a short figure or key term stated in the sources (use none if the sources state none), three to six sections of short points, and a one-sentence takeaway; do not claim generated images.`;
             const result = await adapter.chat({
               model: input.model,
               effort: input.effort,
@@ -1163,6 +1255,32 @@ export async function createApp(options = {}) {
                 ),
                 usageId,
               );
+            if (input.kind === "labels") {
+              // Source topics are notebook state, not a study artifact.
+              const labels = content.labels
+                .filter((l) => labelSources[l.source - 1])
+                .map((l) => ({
+                  sourceId: labelSources[l.source - 1].id,
+                  topic: l.topic,
+                }));
+              assert(
+                labels.length,
+                502,
+                "The model returned no usable labels. Retry.",
+              );
+              db.transaction(() =>
+                labels.forEach((l) =>
+                  db.run(
+                    "UPDATE sources SET topic=? WHERE id=?",
+                    l.topic,
+                    l.sourceId,
+                  ),
+                ),
+              );
+              recordUsage();
+              audit(user, "generated_labels", notebook.id);
+              return json(res, { labels }, 201);
+            }
             if (input.kind === "questions") {
               // Suggested questions are notebook state, not a study artifact.
               db.run(
@@ -1344,6 +1462,19 @@ export async function createApp(options = {}) {
         }
       }
     }
+    if (path[0] === "messages" && path.length === 2 && method === "PATCH") {
+      const message = owned("messages", path[1], user, "edit");
+      const input = z
+        .object({ feedback: z.enum(["up", "down"]).nullable() })
+        .parse(await body(req));
+      assert(message.role === "assistant", 400, "Only answers can be rated.");
+      db.run(
+        "UPDATE messages SET feedback=? WHERE id=?",
+        input.feedback,
+        message.id,
+      );
+      return json(res, { ok: true });
+    }
     if (path[0] === "sources") {
       const source = owned("sources", path[1], user, needFor(method));
       if (method === "GET" && path[2] === "file") {
@@ -1388,8 +1519,21 @@ export async function createApp(options = {}) {
         return json(res, { ok: true });
       }
       if (method === "PATCH") {
-        const input = z.object({ title: short }).parse(await body(req));
-        db.run("UPDATE sources SET title=? WHERE id=?", input.title, source.id);
+        const input = z
+          .object({
+            title: short.optional(),
+            topic: z.string().trim().max(40).optional(),
+          })
+          .refine((i) => i.title !== undefined || i.topic !== undefined, {
+            message: "A title or topic is required.",
+          })
+          .parse(await body(req));
+        db.run(
+          "UPDATE sources SET title=?,topic=? WHERE id=?",
+          input.title ?? source.title,
+          input.topic ?? source.topic ?? "",
+          source.id,
+        );
         return json(res, { ok: true });
       }
       if (method === "DELETE") {

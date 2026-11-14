@@ -6,6 +6,42 @@ export const schemas = {
   questions: z.object({
     questions: z.array(z.string().trim().min(5).max(200)).min(1).max(5),
   }),
+  labels: z.object({
+    labels: z
+      .array(
+        z.object({
+          source: z.number().int().positive(),
+          topic: z.string().trim().min(1).max(40),
+        }),
+      )
+      .min(1)
+      .max(100),
+  }),
+  infographic: z.object({
+    title: text.max(200),
+    subtitle: z.string().max(300).default(""),
+    stats: z
+      .array(
+        z.object({
+          value: z.string().trim().min(1).max(40),
+          label: z.string().trim().min(1).max(160),
+          refs,
+        }),
+      )
+      .max(6)
+      .default([]),
+    sections: z
+      .array(
+        z.object({
+          heading: z.string().trim().min(1).max(160),
+          points: z.array(z.string().trim().min(1).max(400)).min(1).max(6),
+          refs,
+        }),
+      )
+      .min(1)
+      .max(8),
+    takeaway: z.string().max(600).default(""),
+  }),
   audio: z.object({
     title: text,
     summary: z.string().max(2000).default(""),
@@ -124,6 +160,9 @@ export const schemas = {
 };
 export const shapes = {
   questions: '{"questions":["...","...","..."]}',
+  labels: '{"labels":[{"source":1,"topic":"..."}]}',
+  infographic:
+    '{"title":"...","subtitle":"one line","stats":[{"value":"short figure or term","label":"what it means","refs":[1]}],"sections":[{"heading":"...","points":["..."],"refs":[1]}],"takeaway":"one sentence"}',
   audio:
     '{"title":"...","summary":"one-sentence description","lines":[{"speaker":"A","text":"...","refs":[1]},{"speaker":"B","text":"...","refs":[1]}]}',
   slides:

@@ -69,6 +69,33 @@ export function fixtureProvider(provider) {
             "How do plant cells capture light?",
           ],
         };
+      else if (prompt.includes("Label each source"))
+        data = { labels: [{ source: 1, topic: "Cell biology" }] };
+      else if (prompt.includes("Generate a infographic"))
+        data = {
+          title: "How cells handle energy",
+          subtitle: "Respiration and photosynthesis at a glance",
+          stats: [
+            {
+              value: "ATP",
+              label: "Molecule that stores transferred energy",
+              ...ref,
+            },
+          ],
+          sections: [
+            {
+              heading: "Mitochondria",
+              points: ["Site of aerobic cellular respiration."],
+              ...ref,
+            },
+            {
+              heading: "Chloroplasts",
+              points: ["Absorb light for photosynthesis."],
+              ...ref,
+            },
+          ],
+          takeaway: "Mitochondria transfer energy into ATP.",
+        };
       else if (prompt.includes("Generate a flashcards"))
         data = {
           title: "Cell recall",

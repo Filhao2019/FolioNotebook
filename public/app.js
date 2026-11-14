@@ -52,6 +52,32 @@ const pt = {
   "Add a note": "Adicionar nota",
   "Your notebooks": "Seus cadernos",
   "View all": "Ver todos",
+  Collections: "Coleções",
+  All: "Todos",
+  "New collection": "Nova coleção",
+  "Rename collection": "Renomear coleção",
+  "Delete collection": "Excluir coleção",
+  "Collection options": "Opções da coleção",
+  "Collection name": "Nome da coleção",
+  "Add to a collection": "Adicionar a uma coleção",
+  "No collections yet.": "Nenhuma coleção ainda.",
+  "The notebooks in this collection are kept.":
+    "Os cadernos desta coleção são mantidos.",
+  Done: "Concluir",
+  "Sort sources": "Ordenar fontes",
+  "Date added": "Data de adição",
+  Type: "Tipo",
+  "No topic": "Sem tópico",
+  "Set topic": "Definir tópico",
+  "Leave empty to remove the topic.": "Deixe vazio para remover o tópico.",
+  "Auto-label": "Rotular automaticamente",
+  "Sources labelled.": "Fontes rotuladas.",
+  "Good response": "Boa resposta",
+  "Bad response": "Resposta ruim",
+  Infographic: "Infográfico",
+  "The big picture on one page": "A visão geral em uma página",
+  "Key takeaway": "Ideia principal",
+  "Export HTML": "Exportar HTML",
   "Open notebook": "Abrir caderno",
   "No notebooks yet": "Nenhum caderno ainda",
   "Cards due": "Cartões para revisar",
@@ -437,6 +463,13 @@ const paths = {
     "M6 8.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5 M18.5 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5 M11 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5 M8.4 6.4l7.6.8 M7 8.3l3 7.9 M17.2 9.7l-4.8 6.9",
   minus: "M5 12h14",
   fit: "M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5",
+  thumbUp:
+    "M7 11v9H4v-9z M7 11l4-7a2 2 0 0 1 2 2v4h5a2 2 0 0 1 2 2.3l-1 6A2 2 0 0 1 17 20H7",
+  thumbDown:
+    "M7 13V4H4v9z M7 13l4 7a2 2 0 0 0 2-2v-4h5a2 2 0 0 0 2-2.3l-1-6A2 2 0 0 0 17 4H7",
+  folder:
+    "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z",
+  tag: "M3 4h8l10 10-7 7L4 11z M7.5 8h.01",
 };
 function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -731,13 +764,21 @@ function editOnly(node) {
   return node;
 }
 async function refreshData() {
-  const [notebooks, connections, progress, providers] = await Promise.all([
-    api("notebooks"),
-    api("connections"),
-    api("progress"),
-    api("providers"),
-  ]);
-  Object.assign(state, { notebooks, connections, progress, providers });
+  const [notebooks, connections, progress, providers, collections] =
+    await Promise.all([
+      api("notebooks"),
+      api("connections"),
+      api("progress"),
+      api("providers"),
+      api("collections"),
+    ]);
+  Object.assign(state, {
+    notebooks,
+    connections,
+    progress,
+    providers,
+    collections,
+  });
 }
 async function openNotebook(id, keep = true) {
   const data = await api("notebooks/" + id);
@@ -1694,6 +1735,7 @@ function notebookMenu(n) {
     ],
     ["Change icon", "smile", () => iconModal(n)],
     ["Graph view", "graph", () => nav("graph/" + n.id)],
+    ["Add to a collection", "folder", () => collectionModal(n)],
     ["Share with a person", "share", () => shareModal(n)],
     ["Add to a group", "users", () => addToGroupModal(n)],
     ["Publish to a community", "globe", () => publishModal(n)],
@@ -1995,6 +2037,176 @@ function dashboard() {
     ),
   );
 }
+/** The collection being browsed, or undefined for all notebooks. */
+const activeCollection = () =>
+  (state.collections || []).find((c) => c.id === state.collection);
+function collectionNotebooks() {
+  const collection = activeCollection();
+  return collection
+    ? state.notebooks.filter((n) => collection.notebookIds.includes(n.id))
+    : state.notebooks;
+}
+function collectionNameModal(title, current, save) {
+  const input = el("input", { required: true, maxlength: 80, value: current });
+  const form = el(
+    "form",
+    {
+      class: "stack",
+      onSubmit: (e) => {
+        e.preventDefault();
+        void action(async () => {
+          await save(input.value.trim());
+          $("#dialog").close();
+          await refreshData();
+          render();
+          toast("Saved.");
+        });
+      },
+    },
+    field("Collection name", input),
+    el(
+      "div",
+      { class: "dialog-actions" },
+      button("Cancel", () => $("#dialog").close()),
+      el("button", { class: "button primary", type: "submit" }, t("Save")),
+    ),
+  );
+  modal(title, form);
+  input.select();
+}
+const newCollection = (then) =>
+  collectionNameModal("New collection", "", async (name) => {
+    const { id } = await api("collections", { method: "POST", data: { name } });
+    if (then) await then(id);
+    else state.collection = id;
+  });
+function collectionBar() {
+  const collection = activeCollection();
+  const chip = (label, id, count) =>
+    el(
+      "button",
+      {
+        type: "button",
+        class: "gn-chip gn-collection-chip",
+        "aria-pressed": String((collection?.id || null) === id),
+        onClick: () => {
+          state.collection = id;
+          render();
+        },
+      },
+      id ? icon("folder") : null,
+      el("span", {}, label),
+      el("small", {}, String(count)),
+    );
+  return el(
+    "div",
+    { class: "gn-collections", role: "group", "aria-label": t("Collections") },
+    chip(t("All"), null, state.notebooks.length),
+    (state.collections || []).map((c) =>
+      chip(
+        c.name,
+        c.id,
+        state.notebooks.filter((n) => c.notebookIds.includes(n.id)).length,
+      ),
+    ),
+    button("New collection", () => newCollection(), "gn-chip quiet", "plus"),
+    collection
+      ? menuButton("Collection options", [
+          [
+            "Rename",
+            "edit",
+            () =>
+              collectionNameModal(
+                "Rename collection",
+                collection.name,
+                (name) =>
+                  api("collections/" + collection.id, {
+                    method: "PATCH",
+                    data: { name },
+                  }),
+              ),
+          ],
+          [
+            "Delete collection",
+            "trash",
+            () =>
+              confirmAction(
+                "Delete collection",
+                "The notebooks in this collection are kept.",
+                async () => {
+                  await api("collections/" + collection.id, {
+                    method: "DELETE",
+                  });
+                  state.collection = null;
+                  await refreshData();
+                  render();
+                },
+              ),
+            true,
+          ],
+        ])
+      : null,
+  );
+}
+/** Tick the collections a notebook belongs to; changes save immediately. */
+function collectionModal(n) {
+  const list = el("div", { class: "stack" });
+  const draw = () =>
+    list.replaceChildren(
+      ...(state.collections.length
+        ? state.collections.map((c) =>
+            el(
+              "label",
+              { class: "gn-collection-option" },
+              el("input", {
+                type: "checkbox",
+                checked: c.notebookIds.includes(n.id),
+                onChange: (e) =>
+                  void action(async () => {
+                    await api(`collections/${c.id}/notebooks/${n.id}`, {
+                      method: e.target.checked ? "PUT" : "DELETE",
+                    });
+                    await refreshData();
+                    draw();
+                  }),
+              }),
+              el("span", {}, c.name),
+            ),
+          )
+        : [el("p", { class: "muted" }, t("No collections yet."))]),
+    );
+  draw();
+  const dialog = modal(
+    "Add to a collection",
+    el(
+      "div",
+      { class: "stack" },
+      el("p", { class: "muted small" }, n.title),
+      list,
+      el(
+        "div",
+        { class: "dialog-actions" },
+        button(
+          "New collection",
+          () =>
+            newCollection((id) =>
+              api(`collections/${id}/notebooks/${n.id}`, { method: "PUT" }),
+            ),
+          "",
+          "plus",
+        ),
+        button("Done", () => $("#dialog").close(), "primary"),
+      ),
+    ),
+  );
+  dialog.addEventListener(
+    "close",
+    () => {
+      if (state.page !== "notebook") render();
+    },
+    { once: true },
+  );
+}
 function notebooksView() {
   return el(
     "div",
@@ -2004,8 +2216,9 @@ function notebooksView() {
       "Sources stay with your notebook when you switch models.",
       button("New notebook", newNotebook, "gn-pill gn-dark", "plus"),
     ),
+    state.notebooks.length ? collectionBar() : null,
     state.notebooks.length
-      ? notebookGallery(state.notebooks, { search: true })
+      ? notebookGallery(collectionNotebooks(), { search: true })
       : empty(
           "No notebooks yet",
           "Import notes, a chapter, or a worksheet to begin.",
@@ -2413,8 +2626,12 @@ function sourceRow(s) {
           )
         : null,
       s.error ? el("small", { class: "error" }, s.error) : null,
+      s.topic
+        ? el("small", { class: "gn-source-topic" }, icon("tag"), s.topic)
+        : null,
     ),
     menuButton("Source options", [
+      canEdit() && ["Set topic", "tag", () => topicModal(s)],
       canEdit() && [
         "Rename",
         "edit",
@@ -2464,20 +2681,111 @@ function sourceRow(s) {
     }),
   );
 }
+function topicModal(s) {
+  const input = el("input", { maxlength: 40, value: s.topic || "" });
+  const form = el(
+    "form",
+    {
+      class: "stack",
+      onSubmit: (e) => {
+        e.preventDefault();
+        void action(async () => {
+          await api("sources/" + s.id, {
+            method: "PATCH",
+            data: { topic: input.value.trim() },
+          });
+          $("#dialog").close();
+          await openNotebook(state.activeNotebook);
+          toast("Saved.");
+        });
+      },
+    },
+    field("Topic", input, "Leave empty to remove the topic."),
+    el(
+      "div",
+      { class: "dialog-actions" },
+      button("Cancel", () => $("#dialog").close()),
+      el("button", { class: "button primary", type: "submit" }, t("Save")),
+    ),
+  );
+  modal("Set topic", form);
+  input.select();
+}
+/** Ask the AI in use to label the selected sources by topic; the server saves the labels. */
+async function autoLabelSources() {
+  const selection = aiSelection();
+  if (!selection.sourceIds.length)
+    throw new Error("Select at least one ready source.");
+  await api("notebooks/" + state.activeNotebook + "/generate", {
+    method: "POST",
+    data: { ...selection, kind: "labels" },
+  });
+  store("folio-source-sort", "topic");
+  await openNotebook(state.activeNotebook);
+  toast("Sources labelled.");
+}
+const sourceSorts = {
+  added: () => 0,
+  name: (a, b) => a.title.localeCompare(b.title, state.locale),
+  type: (a, b) =>
+    a.format.localeCompare(b.format) ||
+    a.title.localeCompare(b.title, state.locale),
+  // Unlabelled sources go last.
+  topic: (a, b) =>
+    Number(!a.topic) - Number(!b.topic) ||
+    (a.topic || "").localeCompare(b.topic || "", state.locale) ||
+    a.title.localeCompare(b.title, state.locale),
+};
 function sourcesView() {
   const w = state.workspace;
   const ready = w.sources.filter((s) => s.status === "ready");
   const list = el("div", { class: "gn-source-list source-list", role: "list" });
-  const renderList = (query) => {
-    const matches = w.sources.filter((s) =>
-      s.title.toLowerCase().includes(query.toLowerCase()),
-    );
-    list.replaceChildren(...matches.map(sourceRow));
+  let sort = stored("folio-source-sort", "added"),
+    query = "";
+  if (!sourceSorts[sort]) sort = "added";
+  const renderList = () => {
+    const matches = w.sources
+      .filter((s) =>
+        (s.title + " " + (s.topic || ""))
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+      )
+      .sort(sourceSorts[sort]);
+    const rows = [];
+    let group;
+    for (const s of matches) {
+      const name = s.topic || t("No topic");
+      if (sort === "topic" && name !== group) {
+        group = name;
+        rows.push(el("p", { class: "gn-source-group" }, name));
+      }
+      rows.push(sourceRow(s));
+    }
+    list.replaceChildren(...rows);
     if (!matches.length)
       list.append(el("p", { class: "muted small" }, t("No matching sources.")));
     syncSelection();
   };
-  renderList("");
+  renderList();
+  const sortSelect = el(
+    "select",
+    {
+      "aria-label": t("Sort sources"),
+      onChange: (e) => {
+        sort = e.target.value;
+        store("folio-source-sort", sort);
+        renderList();
+      },
+    },
+    [
+      ["added", "Date added"],
+      ["name", "Name"],
+      ["type", "Type"],
+      ["topic", "Topic"],
+    ].map(([value, label]) =>
+      el("option", { value, selected: value === sort }, t(label)),
+    ),
+  );
   const selectAll = el("input", {
     type: "checkbox",
     class: "gn-check",
@@ -2521,8 +2829,24 @@ function sourcesView() {
                 type: "search",
                 placeholder: t("Search sources"),
                 "aria-label": t("Search sources"),
-                onInput: (e) => renderList(e.target.value),
+                onInput: (e) => {
+                  query = e.target.value;
+                  renderList();
+                },
               }),
+            ),
+            el(
+              "div",
+              { class: "gn-source-tools" },
+              sortSelect,
+              canEdit()
+                ? button(
+                    "Auto-label",
+                    () => action(autoLabelSources),
+                    "gn-chip small",
+                    "wand",
+                  )
+                : null,
             ),
             el(
               "label",
@@ -3047,8 +3371,34 @@ function messageView(m) {
           .find((x) => x.role === "user");
         if (previous) void sendMessage(previous.text);
       }),
+      canEdit() ? feedbackButtons(m) : null,
     ),
   );
+}
+/** Good/bad rating for an answer; pressing the active rating clears it. */
+function feedbackButtons(m) {
+  const sync = () =>
+    buttons.forEach((b) =>
+      b.setAttribute("aria-pressed", String(m.feedback === b.dataset.value)),
+    );
+  const buttons = [
+    ["up", "thumbUp", "Good response"],
+    ["down", "thumbDown", "Bad response"],
+  ].map(([value, glyph, label]) => {
+    const b = iconButton(glyph, label, () =>
+      action(async () => {
+        const feedback = m.feedback === value ? null : value;
+        await api("messages/" + m.id, { method: "PATCH", data: { feedback } });
+        m.feedback = feedback;
+        sync();
+      }),
+    );
+    b.classList.add("gn-feedback");
+    b.dataset.value = value;
+    return b;
+  });
+  sync();
+  return buttons;
 }
 const studioTools = [
   ["audio", "Audio overview", "audio"],
@@ -3059,8 +3409,10 @@ const studioTools = [
   ["quiz", "Quiz", "quiz"],
   ["table", "Data table", "table"],
   ["guide", "Study guide", "book"],
+  ["infographic", "Infographic", "chart"],
 ];
 const studioDescriptions = {
+  infographic: "The big picture on one page",
   audio: "Listen to a two-host conversation",
   slides: "Present the key ideas",
   mindmap: "Connect the dots",
@@ -3080,6 +3432,7 @@ const toolDefinitions = [
   ["table", "Data table", "table"],
   ["slides", "Slide deck", "slides"],
   ["audio", "Audio overview", "audio"],
+  ["infographic", "Infographic", "chart"],
   ["note", "Note", "note"],
 ];
 function studioView() {
@@ -4182,6 +4535,7 @@ async function openArtifact(id) {
   if (a.kind === "mindmap") return mindmapModal(a);
   if (a.kind === "slides") return slidesModal(a);
   if (a.kind === "audio") return audioModal(a);
+  if (a.kind === "infographic") return infographicModal(a);
   const body = el(
     "div",
     { class: "stack" },
@@ -4289,6 +4643,88 @@ function convertToSource(a) {
     "Convert to source",
   );
 }
+/** One-page visual summary. Built from text nodes, so source text never becomes HTML. */
+function infographicPoster(a, standalone = false) {
+  const c = a.content;
+  const [titleTag, sectionTag] = standalone ? ["h1", "h2"] : ["h3", "h4"];
+  const cite = (refs) =>
+    refs?.length
+      ? el(
+          "sup",
+          { class: "ig-refs" },
+          " " + refs.map((r) => `[${r}]`).join(""),
+        )
+      : null;
+  return el(
+    "article",
+    { class: "ig" },
+    el(
+      "header",
+      { class: "ig-head" },
+      el("small", {}, t("Infographic")),
+      el(titleTag, {}, c.title),
+      c.subtitle ? el("p", {}, c.subtitle) : null,
+    ),
+    c.stats.length
+      ? el(
+          "div",
+          { class: "ig-stats" },
+          c.stats.map((s) =>
+            el(
+              "div",
+              { class: "ig-stat" },
+              el("strong", {}, s.value),
+              el("span", {}, s.label, cite(s.refs)),
+            ),
+          ),
+        )
+      : null,
+    el(
+      "div",
+      { class: "ig-sections" },
+      c.sections.map((s, i) =>
+        el(
+          "section",
+          { class: "ig-section" },
+          el("span", { class: "ig-num", "aria-hidden": "true" }, String(i + 1)),
+          el(sectionTag, {}, s.heading, cite(s.refs)),
+          el(
+            "ul",
+            {},
+            s.points.map((point) => el("li", {}, point)),
+          ),
+        ),
+      ),
+    ),
+    c.takeaway
+      ? el(
+          "p",
+          { class: "ig-takeaway" },
+          el("strong", {}, t("Key takeaway") + ": "),
+          c.takeaway,
+        )
+      : null,
+  );
+}
+function infographicModal(a) {
+  modal(
+    a.title,
+    el(
+      "div",
+      { class: "stack" },
+      el(
+        "div",
+        { class: "row wrap" },
+        button("Export HTML", () => exportArtifact(a), "small", "download"),
+      ),
+      infographicPoster(a),
+      citationButtons(a.citations),
+    ),
+    true,
+  );
+}
+const infographicCss =
+  "body{font:17px/1.55 system-ui,sans-serif;margin:0;background:#eef1fa;color:#202634}main{max-width:860px;margin:auto;padding:24px}.ig{background:#fff;border-radius:24px;padding:36px}.ig-head small{letter-spacing:.12em;text-transform:uppercase;color:#4250b3;font-weight:600}.ig-head h1{font-size:2.1em;line-height:1.15;margin:.2em 0}.ig-head p{color:#5b6472;margin:0}.ig-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:24px 0}.ig-stat{background:#e9ebfa;border-radius:16px;padding:16px}.ig-stat strong{display:block;font-size:1.7em;color:#2f3c9e;overflow-wrap:anywhere}.ig-sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.ig-section{border:1px solid #dfe3ee;border-radius:16px;padding:16px;break-inside:avoid}.ig-num{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#2f3c9e;color:#fff;font-weight:700;font-size:.85em}.ig-section h2{font-size:1.1em;margin:.5em 0 .3em}.ig-section ul{margin:0;padding-left:1.1em}.ig-takeaway{background:#202634;color:#fff;border-radius:16px;padding:16px;margin:24px 0 0}.ig-refs{color:#69717e;font-size:.7em}footer{font-size:.75em;color:#4a5261;margin-top:24px}@media print{body{background:#fff}main{padding:0}.ig{border-radius:0;padding:0}}";
 function slidesModal(a) {
   let index = 0;
   const slide = el("div", { class: "slide-canvas" });
@@ -4392,6 +4828,41 @@ function exportArtifact(a) {
       audioTranscript(a),
       "text/markdown",
     );
+  if (a.kind === "infographic") {
+    const doc = document.implementation.createHTMLDocument(a.title);
+    doc.documentElement.lang = state.locale;
+    const meta = doc.createElement("meta");
+    meta.setAttribute("charset", "utf-8");
+    const viewport = doc.createElement("meta");
+    viewport.name = "viewport";
+    viewport.content = "width=device-width, initial-scale=1";
+    const style = doc.createElement("style");
+    style.textContent = infographicCss;
+    doc.head.append(meta, viewport, style);
+    doc.body.append(
+      el(
+        "main",
+        {},
+        infographicPoster(a, true),
+        el(
+          "footer",
+          {},
+          a.citations.map((c) =>
+            el(
+              "p",
+              {},
+              `[${c.id}] ${c.title} (${c.page ? "page " + c.page : "section " + c.section}): ${c.text}`,
+            ),
+          ),
+        ),
+      ),
+    );
+    return download(
+      a.title + ".html",
+      "<!doctype html>\n" + doc.documentElement.outerHTML,
+      "text/html;charset=utf-8",
+    );
+  }
   if (a.kind === "slides") {
     // Build with text nodes so source text can never become executable HTML.
     const doc = document.implementation.createHTMLDocument(a.title);
@@ -6614,6 +7085,7 @@ const resourceLabels = {
   quiz: "Quiz",
   table: "Data table",
   guide: "Study guide",
+  infographic: "Infographic",
   note: "Note",
 };
 const graphKinds = [

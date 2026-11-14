@@ -54,6 +54,20 @@ export function openDatabase(directory) {
   CREATE INDEX IF NOT EXISTS member_user ON group_members(user_id);
   CREATE INDEX IF NOT EXISTS group_notebook ON group_notebooks(notebook_id);
   CREATE INDEX IF NOT EXISTS community_notebook ON community_notebooks(notebook_id);`);
+  // Collections, source topics and answer feedback (additive).
+  db.exec(`
+  CREATE TABLE IF NOT EXISTS collections(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,name TEXT NOT NULL,created TEXT DEFAULT CURRENT_TIMESTAMP);
+  CREATE TABLE IF NOT EXISTS collection_notebooks(collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,created TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(collection_id,notebook_id));
+  CREATE INDEX IF NOT EXISTS collection_owner ON collections(user_id);`);
+  const hasColumn = (table, column) =>
+    db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all()
+      .some((c) => c.name === column);
+  if (!hasColumn("sources", "topic"))
+    db.exec("ALTER TABLE sources ADD COLUMN topic TEXT DEFAULT ''");
+  if (!hasColumn("messages", "feedback"))
+    db.exec("ALTER TABLE messages ADD COLUMN feedback TEXT");
   return {
     raw: db,
     /** SQL projection types vary by query; validate external inputs before this boundary. @returns {Record<string, any> | undefined} */
