@@ -148,6 +148,9 @@ test("an install the person starts opens the new version afterwards", () => {
     "/Applications/Folio.app/Contents/MacOS/Folio",
     true,
   );
+  assert.match(args[1], /&& xattr -dr com\.apple\.quarantine "\$1"/);
+  assert.match(args[1], /&& codesign --force --deep --sign - "\$1"/);
+  assert.match(args[1], /&& codesign --verify --deep --strict "\$1"/);
   assert.match(args[1], /&& open "\$1"$/);
   assert.deepEqual(args.slice(2), [
     "sh",

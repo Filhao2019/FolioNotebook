@@ -119,8 +119,16 @@ export function installCommand(file, platform, execPath, relaunch = false) {
   // Folio.app/Contents/MacOS/Folio → Folio.app. Unpack first, so a failed
   // download or unzip never leaves the computer without the app.
   const bundle = posix.resolve(execPath, "../../..");
+  // The macOS build is not notarized, so the replaced bundle must be signed
+  // again: without it `codesign --verify` fails ("code has no resources but
+  // signature indicates they must be present"), AMFI refuses framework dylibs
+  // and Gatekeeper calls the app damaged. Verify before reopening, so a broken
+  // bundle is not launched by us.
   const swap =
     'sleep 2; d=$(mktemp -d) && ditto -x -k "$2" "$d" && rm -rf "$1" && mv "$d"/*.app "$1"' +
+    ' && xattr -dr com.apple.quarantine "$1" >/dev/null 2>&1' +
+    ' && codesign --force --deep --sign - "$1" >/dev/null 2>&1' +
+    ' && codesign --verify --deep --strict "$1" >/dev/null 2>&1' +
     (relaunch ? ' && open "$1"' : "");
   return ["/bin/sh", ["-c", swap, "sh", bundle, file]];
 }
