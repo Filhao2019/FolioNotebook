@@ -1760,13 +1760,14 @@ export async function createApp(options = {}) {
               if (input.kind === "flashcards")
                 content.cards.forEach((c) =>
                   db.run(
-                    "INSERT INTO cards(id,artifact_id,front,back,hint,explanation,refs,due) VALUES(?,?,?,?,?,?,?,?)",
+                    "INSERT INTO cards(id,artifact_id,front,back,hint,explanation,tag,refs,due) VALUES(?,?,?,?,?,?,?,?,?)",
                     randomUUID(),
                     id,
                     c.front,
                     c.back,
                     c.hint,
                     c.explanation,
+                    c.tag,
                     JSON.stringify(c.refs),
                     Date.now(),
                   ),
@@ -2002,7 +2003,8 @@ export async function createApp(options = {}) {
     }
     if (path[0] === "artifacts") {
       // Viewers may take a quiz to study; their attempt is scored, not stored.
-      const quizAttempt = method === "POST" && path[2] === "attempt";
+      const quizAttempt =
+        method === "POST" && ["attempt", "check"].includes(path[2]);
       const artifact = owned(
         "artifacts",
         path[1],
@@ -2063,6 +2065,26 @@ export async function createApp(options = {}) {
           artifact.id,
         );
         return json(res, { ok: true });
+      }
+      // Practice mode: the answer key stays on the server, and one answer
+      // is checked at a time.
+      if (method === "POST" && path[2] === "check") {
+        assert(artifact.kind === "quiz", 400, "This is not a quiz.");
+        const input = z
+          .object({
+            index: z.number().int().min(0).max(29),
+            answer: z.number().int().min(0).max(5),
+          })
+          .parse(await body(req));
+        const q = JSON.parse(artifact.content).questions[input.index];
+        assert(q, 400, "This question is unavailable.");
+        return json(res, {
+          correct: input.answer === q.answer,
+          answer: q.answer,
+          explanation: q.explanation,
+          explainWrong: q.explainWrong || {},
+          refs: q.refs,
+        });
       }
       if (method === "POST" && path[2] === "attempt") {
         assert(artifact.kind === "quiz", 400, "This is not a quiz.");
@@ -2506,6 +2528,7 @@ export async function createApp(options = {}) {
         "/fonts/dm-sans-semibold.ttf": "fonts/dm-sans-semibold.ttf",
         "/fonts/dm-sans-bold.ttf": "fonts/dm-sans-bold.ttf",
         "/fonts/lora-regular.ttf": "fonts/lora-regular.ttf",
+        "/fonts/figtree.ttf": "fonts/figtree.ttf",
       };
       const file = files[url.pathname];
       assert(file, 404, "Page not found.");

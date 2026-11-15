@@ -128,6 +128,7 @@ export function fixtureProvider(provider) {
               back: "Transfer energy into ATP during respiration.",
               hint: "Think ATP.",
               explanation: "Mitochondria support aerobic respiration.",
+              tag: "Organelles",
               ...ref,
             },
             {
@@ -147,9 +148,15 @@ export function fixtureProvider(provider) {
               question: "Which molecule stores transferred energy?",
               options: ["ATP", "Cellulose", "Water"],
               answer: 0,
+              hint: "Think about what respiration produces.",
               explanation:
                 "The source states that energy is transferred into ATP.",
+              explainWrong: {
+                1: "Cellulose builds plant cell walls.",
+                2: "Water is a product, not an energy store.",
+              },
               topic: "Cellular respiration",
+              difficulty: 1,
               ...ref,
             },
             {

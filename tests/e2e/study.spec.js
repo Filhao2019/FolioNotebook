@@ -98,7 +98,7 @@ test("account → provider → PDF → cited chat → review → quiz → reload
     .getByRole("button", { name: "Reveal answer", exact: true })
     .last()
     .click();
-  await page.getByRole("button", { name: /^Good \d/ }).click();
+  await page.getByRole("button", { name: /^Got it/ }).click();
   await expect(page.locator(".fc-count")).toHaveText("Card 2 of 2");
   await expect(
     page.getByText("What contains DNA?", { exact: true }),
@@ -109,11 +109,21 @@ test("account → provider → PDF → cited chat → review → quiz → reload
     .getByRole("dialog")
     .getByRole("button", { name: "Generate", exact: true })
     .click();
-  await page.getByLabel("ATP", { exact: true }).check();
-  await page.getByLabel("Cell wall", { exact: true }).check();
-  await page.getByRole("button", { name: "Submit quiz" }).click();
-  await expect(page.getByRole("heading", { name: "50% — 1/2" })).toBeVisible();
-  await expect(page.getByText("Review topics", { exact: true })).toBeVisible();
+  // Exam mode: no feedback while answering; unanswered questions are confirmed.
+  const quiz = page.getByRole("dialog");
+  await quiz.getByRole("radio", { name: "Exam" }).click();
+  await quiz.getByRole("button", { name: "Start", exact: true }).click();
+  await quiz.getByRole("radio", { name: /ATP$/ }).click();
+  await expect(quiz.locator(".qz-feedback")).toHaveCount(0);
+  await quiz.getByRole("button", { name: "Flag", exact: true }).click();
+  await quiz.getByRole("button", { name: "Next", exact: true }).click();
+  await quiz.getByRole("button", { name: "Submit", exact: true }).click();
+  await expect(quiz.getByText("1 question is unanswered. Submit anyway?")).toBeVisible();
+  await quiz.getByRole("button", { name: "Keep going" }).click();
+  await quiz.getByRole("radio", { name: /Cell wall$/ }).click();
+  await quiz.getByRole("button", { name: "Submit", exact: true }).click();
+  await expect(quiz.getByRole("img", { name: "50% 1 / 2" })).toBeVisible();
+  await expect(quiz.getByRole("heading", { name: "By topic" })).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.reload();
   await expect(
@@ -221,10 +231,11 @@ test("guest notes, manual flashcards, exports, keyboard and safe rendering", asy
   await expect(
     page.getByText("An energy-transfer molecule.", { exact: true }),
   ).toBeVisible();
-  await page.keyboard.press("3");
+  await page.keyboard.press("2");
   await expect(
     page.getByRole("heading", { name: "Study session complete" }),
   ).toBeVisible();
+  await expect(page.getByRole("img", { name: "100% known" })).toBeVisible();
 });
 
 test("guide editing, interactive maps, table export and mobile preferences", async ({
