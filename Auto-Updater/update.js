@@ -9,7 +9,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 const REPO = "Filhao2019/FolioNotebook";
-const LATEST = `https://api.github.com/repos/${REPO}/releases/latest`;
+const RELEASES = `https://api.github.com/repos/${REPO}/releases?per_page=30`;
 const DOWNLOADS = `https://github.com/${REPO}/releases/download/`;
 
 const parts = (version) =>
@@ -44,15 +44,21 @@ export function assetName(version, platform, arch) {
 }
 
 /**
+ * @typedef {{ version: string, name: string, url: string, sha256: string,
+ *   title: string, notes: string, published: string }} Update
+ */
+
+/**
  * The download for a GitHub release, or null when the release is not newer
  * or has no checksummed file for this computer from Folio's own repo.
- * @param {any} release GitHub "latest release" API response
+ * @param {any} release one GitHub release from the API
  * @param {string} current
  * @param {string} platform
  * @param {string} arch
- * @returns {{ version: string, name: string, url: string, sha256: string } | null}
+ * @returns {Update | null}
  */
 export function pickUpdate(release, current, platform, arch) {
+  if (release?.draft || release?.prerelease) return null;
   if (!isNewer(release?.tag_name, current)) return null;
   const version = release.tag_name.replace(/^v/, "");
   const name = assetName(version, platform, arch);
@@ -60,47 +66,90 @@ export function pickUpdate(release, current, platform, arch) {
   const url = String(asset?.browser_download_url);
   const sha256 = /^sha256:([0-9a-f]{64})$/.exec(asset?.digest)?.[1];
   if (!url.startsWith(DOWNLOADS) || !sha256) return null;
-  return { version, name, url, sha256 };
+  return {
+    version,
+    name,
+    url,
+    sha256,
+    title: String(release.name || "").trim() || `Folio ${version}`,
+    notes: typeof release.body === "string" ? release.body.trim() : "",
+    published: String(release.published_at || ""),
+  };
+}
+
+/**
+ * Every release newer than `current` that this computer can install,
+ * newest first.
+ * @param {any} releases GitHub "list releases" API response
+ * @param {string} current
+ * @param {string} platform
+ * @param {string} arch
+ * @returns {Update[]}
+ */
+export function pickUpdates(releases, current, platform, arch) {
+  if (!Array.isArray(releases)) return [];
+  const seen = new Set();
+  return releases
+    .map((r) => pickUpdate(r, current, platform, arch))
+    .filter((u) => u && !seen.has(u.version) && seen.add(u.version))
+    .sort((a, b) => (isNewer(a.version, b.version) ? -1 : 1));
 }
 
 /**
  * The command that replaces the installed app with a downloaded update.
- * Run it detached while Folio quits.
+ * Run it detached while Folio quits. With `relaunch`, Folio opens again once
+ * the new version is in place.
  * @param {string} file downloaded update
  * @param {string} platform
  * @param {string} execPath process.execPath of the running app
+ * @param {boolean} [relaunch]
  * @returns {[string, string[]]}
  */
-export function installCommand(file, platform, execPath) {
-  if (platform === "win32") return [file, ["/S", "--updated"]];
+export function installCommand(file, platform, execPath, relaunch = false) {
+  if (platform === "win32")
+    return [file, ["/S", "--updated", ...(relaunch ? ["--force-run"] : [])]];
   // Asks for the password in a system dialog; dpkg replaces the old version.
-  if (platform === "linux") return ["pkexec", ["dpkg", "-i", file]];
+  if (platform === "linux")
+    return relaunch
+      ? [
+          "/bin/sh",
+          ["-c", 'pkexec dpkg -i "$1" && exec "$2"', "sh", file, execPath],
+        ]
+      : ["pkexec", ["dpkg", "-i", file]];
   // Folio.app/Contents/MacOS/Folio → Folio.app. Unpack first, so a failed
   // download or unzip never leaves the computer without the app.
   const bundle = posix.resolve(execPath, "../../..");
   const swap =
-    'sleep 2; d=$(mktemp -d) && ditto -x -k "$2" "$d" && rm -rf "$1" && mv "$d"/*.app "$1"';
+    'sleep 2; d=$(mktemp -d) && ditto -x -k "$2" "$d" && rm -rf "$1" && mv "$d"/*.app "$1"' +
+    (relaunch ? ' && open "$1"' : "");
   return ["/bin/sh", ["-c", swap, "sh", bundle, file]];
 }
 
 /**
- * Download the newer release into `dir` and check it against GitHub's
- * checksum. Resolves to the file path, or null when Folio is up to date.
+ * Ask GitHub for every release newer than `current` that this computer can
+ * install, newest first. Throws when GitHub cannot be reached.
  * @param {string} current
- * @param {string} dir
  */
-export async function fetchUpdate(
+export async function listUpdates(
   current,
-  dir,
   platform = process.platform,
   arch = process.arch,
 ) {
-  const latest = await fetch(LATEST, {
+  const response = await fetch(RELEASES, {
     headers: { accept: "application/vnd.github+json" },
   });
-  if (!latest.ok) return null;
-  const update = pickUpdate(await latest.json(), current, platform, arch);
-  if (!update) return null;
+  if (!response.ok)
+    throw new Error(`GitHub releases unavailable (${response.status}).`);
+  return pickUpdates(await response.json(), current, platform, arch);
+}
+
+/**
+ * Download one update into `dir` and check it against GitHub's checksum.
+ * Resolves to the file path.
+ * @param {Update} update
+ * @param {string} dir
+ */
+export async function downloadUpdate(update, dir) {
   const response = await fetch(update.url);
   if (!response.ok || !response.body)
     throw new Error(`Update download failed (${response.status}).`);

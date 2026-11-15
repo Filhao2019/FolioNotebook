@@ -5,7 +5,7 @@ import { join } from "node:path";
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 /**
- * @typedef {{ serverUrl?: string, dataDir?: string, secretDir?: string }} DesktopConfig
+ * @typedef {{ serverUrl?: string, dataDir?: string, secretDir?: string, autoUpdate?: boolean }} DesktopConfig
  * @typedef {{ mode: "local", dataDir: string, secretDir: string } | { mode: "remote", url: string }} Runtime
  */
 
@@ -70,7 +70,8 @@ export function navigationDecision(target, appOrigin) {
 }
 
 /**
- * Parse desktop.json, keeping only known string settings.
+ * Parse desktop.json, keeping only known settings: the string paths and
+ * whether updates install by themselves (`autoUpdate`, on unless false).
  * @param {string} text
  * @returns {DesktopConfig}
  */
@@ -86,5 +87,6 @@ export function readConfig(text) {
   for (const key of ["serverUrl", "dataDir", "secretDir"])
     if (typeof raw?.[key] === "string" && raw[key].trim())
       config[key] = raw[key].trim();
+  if (typeof raw?.autoUpdate === "boolean") config.autoUpdate = raw.autoUpdate;
   return config;
 }

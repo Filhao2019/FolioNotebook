@@ -18,7 +18,10 @@ const state = {
   collapsed: new Set(),
   drafts: new Map(),
   locale: localStorage.getItem("folio-locale") || "en",
+  updates: null, // desktop app only: see "Desktop updates"
 };
+// The Folio desktop app's update controls; null in a browser.
+const desktopUpdates = window.folioDesktop?.updates || null;
 const pt = {
   Dashboard: "Visão geral",
   "My notebooks": "Meus cadernos",
@@ -103,6 +106,38 @@ const pt = {
   "Interface language": "Idioma da interface",
   "Folio version": "Versão do Folio",
   "You are running Folio": "Você está usando o Folio",
+  "New update": "Nova atualização",
+  Updates: "Atualizações",
+  "Update automatically": "Atualizar automaticamente",
+  Yes: "Sim",
+  No: "Não",
+  "Folio downloads new versions by itself and installs them when you quit.":
+    "O Folio baixa as novas versões sozinho e as instala quando você o fecha.",
+  "Folio still checks for new versions. When one is out, a New update button appears in the top bar and you choose when to install it.":
+    "O Folio continua procurando novas versões. Quando sair uma, aparece o botão Nova atualização na barra superior e você escolhe quando instalar.",
+  "Updates work in the installed app. This copy runs from the source code.":
+    "As atualizações funcionam no aplicativo instalado. Esta cópia roda a partir do código-fonte.",
+  "This copy of Folio does not update itself. Download new versions from GitHub.":
+    "Esta cópia do Folio não se atualiza sozinha. Baixe as novas versões no GitHub.",
+  "Check for updates": "Procurar atualizações",
+  "Checking for updates…": "Procurando atualizações…",
+  "Folio is up to date.": "O Folio está atualizado.",
+  "View updates": "Ver atualizações",
+  "1 update can be installed.": "1 atualização pode ser instalada.",
+  "updates can be installed.": "atualizações podem ser instaladas.",
+  "will install when you quit Folio.":
+    "será instalado quando você fechar o Folio.",
+  Downloading: "Baixando",
+  "Downloading…": "Baixando…",
+  Install: "Instalar",
+  Latest: "Mais recente",
+  "No release notes.": "Sem notas da versão.",
+  "Installing closes Folio, puts the new version in place and opens it again. Your notebooks and settings are kept.":
+    "Instalar fecha o Folio, coloca a nova versão no lugar e o abre de novo. Seus cadernos e configurações são mantidos.",
+  "Installing the update. Folio will reopen.":
+    "Instalando a atualização. O Folio vai abrir de novo.",
+  "Folio is up to date. There is nothing to install.":
+    "O Folio está atualizado. Não há nada para instalar.",
   "Explanation language": "Idioma das explicações",
   Theme: "Tema",
   Light: "Claro",
@@ -1060,6 +1095,7 @@ function topbar() {
     el(
       "div",
       { class: "top-actions" },
+      newUpdateButton("small"),
       el("span", { class: "badge" }, icon("book"), t("Source-grounded")),
       iconButton("settings", "Settings", () => nav("settings")),
       iconButton("sun", "Theme", () =>
@@ -2861,6 +2897,7 @@ function workspaceView() {
       el(
         "div",
         { class: "gn-top-actions" },
+        newUpdateButton("gn-pill"),
         button(
           "New notebook",
           newNotebook,
@@ -7332,7 +7369,199 @@ function folioVersionPanel() {
     { class: "panel stack" },
     el("h2", {}, t("Folio version")),
     el("p", { class: "muted small" }, t("You are running Folio"), " ", value),
+    desktopUpdates ? updateSettings() : null,
   );
+}
+// --- Desktop updates ----------------------------------------------------------
+// Only the Folio desktop app has these controls (desktop/app-preload.cjs). It
+// checks GitHub for new releases. With automatic updates on, the newest one
+// installs when Folio quits; with them off, a "New update" button in the top
+// bar lists every release that can be installed.
+const updatesWaiting = () =>
+  Boolean(
+    state.updates?.supported &&
+    !state.updates.autoUpdate &&
+    state.updates.updates.length,
+  );
+function newUpdateButton(variant) {
+  if (!desktopUpdates) return null;
+  const count = state.updates?.updates.length || 0;
+  const b = button(
+    "New update",
+    openUpdates,
+    "update-button " + variant,
+    "download",
+  );
+  b.dataset.updateButton = "";
+  b.hidden = !updatesWaiting();
+  if (count > 1) b.append(el("span", { class: "update-count" }, String(count)));
+  b.setAttribute(
+    "aria-label",
+    count > 1 ? `${t("New update")} (${count})` : t("New update"),
+  );
+  return b;
+}
+// Refresh the update controls in place, so typing elsewhere is not lost.
+function showUpdates(next) {
+  if (!next) return;
+  state.updates = next;
+  for (const old of document.querySelectorAll("[data-update-button]"))
+    old.replaceWith(
+      newUpdateButton(old.classList.contains("gn-pill") ? "gn-pill" : "small"),
+    );
+  $("#update-settings")?.replaceWith(updateSettings());
+  const list = $("#update-list");
+  if (list) list.replaceWith(updateList());
+}
+function updateStatus(u) {
+  if (u.checking) return t("Checking for updates…");
+  if (u.installing) return `${t("Downloading")} Folio ${u.installing}…`;
+  if (u.error) return t(u.error);
+  if (u.ready && u.autoUpdate)
+    return `Folio ${u.ready} ${t("will install when you quit Folio.")}`;
+  const n = u.updates.length;
+  if (n === 1) return t("1 update can be installed.");
+  if (n > 1) return `${n} ${t("updates can be installed.")}`;
+  return u.checkedAt ? t("Folio is up to date.") : "";
+}
+function updateSettings() {
+  const u = state.updates;
+  if (!u) return el("div", { id: "update-settings" });
+  const hint = !u.supported
+    ? u.blocked === "development"
+      ? "Updates work in the installed app. This copy runs from the source code."
+      : "This copy of Folio does not update itself. Download new versions from GitHub."
+    : u.autoUpdate
+      ? "Folio downloads new versions by itself and installs them when you quit."
+      : "Folio still checks for new versions. When one is out, a New update button appears in the top bar and you choose when to install it.";
+  const answer = el(
+    "strong",
+    { class: "switch-answer" },
+    t(u.autoUpdate ? "Yes" : "No"),
+  );
+  const toggle = el("input", {
+    type: "checkbox",
+    role: "switch",
+    "data-testid": "auto-update",
+    checked: u.autoUpdate,
+    disabled: !u.supported,
+    onChange: (e) => {
+      const on = e.target.checked;
+      answer.textContent = t(on ? "Yes" : "No");
+      void action(async () => showUpdates(await desktopUpdates.setAuto(on)));
+    },
+  });
+  const status = u.supported ? updateStatus(u) : "";
+  return el(
+    "div",
+    { id: "update-settings", class: "stack" },
+    el(
+      "label",
+      { class: "update-switch" },
+      el(
+        "span",
+        { class: "grow" },
+        t("Update automatically"),
+        el("small", {}, t(hint)),
+      ),
+      answer,
+      toggle,
+    ),
+    u.supported
+      ? el(
+          "div",
+          { class: "row update-status" },
+          status
+            ? el("span", { class: "muted small grow" }, status)
+            : el("span", { class: "grow" }),
+          updatesWaiting()
+            ? button("View updates", openUpdates, "small", "download")
+            : null,
+          button(
+            "Check for updates",
+            () => action(async () => showUpdates(await desktopUpdates.check())),
+            "small",
+            "refresh",
+          ),
+        )
+      : null,
+  );
+}
+function updateList() {
+  const u = state.updates;
+  const n = u?.updates.length || 0;
+  if (!n)
+    return el(
+      "div",
+      { id: "update-list", class: "stack" },
+      el("p", {}, t("Folio is up to date. There is nothing to install.")),
+    );
+  return el(
+    "div",
+    { id: "update-list", class: "stack" },
+    el(
+      "p",
+      { class: "muted small" },
+      `${t("You are running Folio")} v${u.current}. `,
+      n === 1
+        ? t("1 update can be installed.")
+        : `${n} ${t("updates can be installed.")}`,
+    ),
+    u.updates.map((update, i) => {
+      const downloading = u.installing === update.version;
+      const install = button(
+        downloading ? "Downloading…" : "Install",
+        () =>
+          action(async () => {
+            await desktopUpdates.install(update.version);
+            toast("Installing the update. Folio will reopen.");
+          }),
+        i === 0 ? "primary small" : "small",
+        "download",
+      );
+      install.disabled = Boolean(u.installing);
+      return el(
+        "article",
+        { class: "update-card", "data-testid": "update-card" },
+        el(
+          "div",
+          { class: "row" },
+          el(
+            "div",
+            { class: "grow" },
+            el("h3", {}, update.title),
+            el(
+              "div",
+              { class: "row muted small update-meta" },
+              el("span", {}, "v" + update.version),
+              update.published
+                ? el("span", {}, formatDate(update.published))
+                : null,
+              i === 0 ? el("span", { class: "badge" }, t("Latest")) : null,
+            ),
+          ),
+          install,
+        ),
+        update.notes
+          ? el("div", { class: "update-notes" }, markdown(update.notes))
+          : el("p", { class: "muted small" }, t("No release notes.")),
+      );
+    }),
+    el(
+      "p",
+      { class: "muted small" },
+      t(
+        "Installing closes Folio, puts the new version in place and opens it again. Your notebooks and settings are kept.",
+      ),
+    ),
+  );
+}
+function openUpdates() {
+  modal("Updates", updateList(), true);
+}
+if (desktopUpdates) {
+  desktopUpdates.onChange(showUpdates);
+  void desktopUpdates.get().then(showUpdates, () => {});
 }
 async function libraryData(kind) {
   const all = await Promise.all(

@@ -17,7 +17,12 @@ import {
   readConfig,
   resolveRuntime,
 } from "./runtime.js";
-import { fetchUpdate, installCommand } from "../Auto-Updater/update.js";
+import {
+  assetName,
+  downloadUpdate,
+  installCommand,
+  listUpdates,
+} from "../Auto-Updater/update.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, "..");
@@ -120,6 +125,7 @@ function createMainWindow() {
     autoHideMenuBar: true,
     backgroundColor: "#f8f9fb",
     webPreferences: {
+      preload: join(here, "app-preload.cjs"),
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
@@ -202,34 +208,181 @@ ipcMain.handle("folio:set-server", async (event, value) => {
   return true;
 });
 
-// Fetch a newer release in the background, then install it when Folio
-// quits; installing removes the old version (see Auto-Updater/README.md).
-// shortcut: checks only at launch and leaves the download in the temp
-// folder; add a timer and cleanup if Folio stays open for days.
-function updateOnQuit() {
-  if (!app.isPackaged) return;
+// Updates from GitHub releases (see Auto-Updater/README.md). Folio checks
+// at launch and every few hours. With automatic updates on (the default) it
+// downloads the newest release and installs it when Folio quits. With them
+// off it only lists the newer releases; the app shows a "New update" button
+// and installs the one the person picks.
+// shortcut: downloads stay in the temp folder; add cleanup if they pile up.
+const CHECK_EVERY = 6 * 60 * 60 * 1000;
+const updater = {
+  // Why this copy cannot update itself: "development" or "unsupported".
+  blocked: "",
+  autoUpdate: true,
+  checking: false,
+  checkedAt: "",
+  /** @type {import("../Auto-Updater/update.js").Update[]} */
+  updates: [],
+  installing: "", // version being downloaded
+  ready: "", // version that installs when Folio quits
+  error: "",
+};
+/** @type {{ file: string, version: string, relaunch: boolean } | null} */
+let pendingInstall = null;
+
+function updateBlocker() {
+  if (!app.isPackaged) return "development";
+  if (!assetName(app.getVersion(), process.platform, process.arch))
+    return "unsupported";
   // Only the .deb install updates itself on Linux.
   if (
     process.platform === "linux" &&
     (process.env.APPIMAGE || !existsSync("/usr/bin/dpkg"))
   )
-    return;
-  fetchUpdate(app.getVersion(), app.getPath("temp"))
-    .then((file) => {
-      if (!file) return;
-      const [command, args] = installCommand(
-        file,
-        process.platform,
-        process.execPath,
-      );
-      app.once("will-quit", () =>
-        spawn(command, args, { detached: true, stdio: "ignore" })
-          .on("error", () => {}) // e.g. no pkexec: stay on this version
-          .unref(),
-      );
-    })
-    .catch(() => {}); // offline or GitHub unreachable: try again next launch
+    return "unsupported";
+  return "";
 }
+
+function updateState() {
+  return {
+    current: app.getVersion(),
+    supported: !updater.blocked,
+    blocked: updater.blocked,
+    autoUpdate: updater.autoUpdate,
+    checking: updater.checking,
+    checkedAt: updater.checkedAt,
+    updates: updater.updates.map(({ version, title, notes, published }) => ({
+      version,
+      title,
+      notes,
+      published,
+    })),
+    installing: updater.installing,
+    ready: updater.ready,
+    error: updater.error,
+  };
+}
+const announceUpdates = () =>
+  mainWindow?.webContents.send("folio:updates", updateState());
+
+async function checkForUpdates() {
+  if (updater.blocked || updater.checking) return;
+  updater.checking = true;
+  updater.error = "";
+  announceUpdates();
+  try {
+    updater.updates = await listUpdates(app.getVersion());
+    updater.checkedAt = new Date().toISOString();
+  } catch {
+    // Offline or GitHub unreachable: keep the last list, try again later.
+    updater.error = "Folio could not reach GitHub to check for updates.";
+  } finally {
+    updater.checking = false;
+  }
+  announceUpdates();
+  if (updater.autoUpdate) void installNewestOnQuit();
+}
+
+/** @type {{ version: string, done: Promise<void> } | null} */
+let downloading = null;
+/** Download an update and install it when Folio quits. */
+async function prepareInstall(update, relaunch) {
+  if (downloading?.version === update.version) await downloading.done;
+  if (pendingInstall?.version === update.version) {
+    pendingInstall.relaunch ||= relaunch;
+    return;
+  }
+  if (downloading)
+    throw new Error("Another update is downloading. Try again in a moment.");
+  updater.installing = update.version;
+  announceUpdates();
+  const done = downloadUpdate(update, app.getPath("temp")).then((file) => {
+    pendingInstall = { file, version: update.version, relaunch };
+    updater.ready = update.version;
+  });
+  downloading = { version: update.version, done };
+  try {
+    await done;
+  } finally {
+    downloading = null;
+    updater.installing = "";
+    announceUpdates();
+  }
+}
+
+async function installNewestOnQuit() {
+  const newest = updater.updates[0];
+  if (!newest || updater.installing || updater.ready === newest.version) return;
+  await prepareInstall(newest, false).catch(() => {}); // retried next check
+}
+
+app.on("will-quit", () => {
+  if (!pendingInstall) return;
+  const [command, args] = installCommand(
+    pendingInstall.file,
+    process.platform,
+    process.execPath,
+    pendingInstall.relaunch,
+  );
+  spawn(command, args, { detached: true, stdio: "ignore" })
+    .on("error", () => {}) // e.g. no pkexec: stay on this version
+    .unref();
+});
+
+function startUpdates(config) {
+  updater.blocked = updateBlocker();
+  updater.autoUpdate = config.autoUpdate !== false;
+  if (updater.blocked) return;
+  void checkForUpdates();
+  setInterval(() => void checkForUpdates(), CHECK_EVERY).unref();
+}
+
+// Only Folio's own page in the main window may use the update controls.
+const fromMainWindow = (event) =>
+  Boolean(mainWindow) &&
+  event.sender === mainWindow.webContents &&
+  !event.senderFrame?.parent &&
+  URL.canParse(event.senderFrame.url) &&
+  new URL(event.senderFrame.url).origin === origin;
+const updateHandler = (channel, handler) =>
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!fromMainWindow(event)) throw new Error("Not allowed.");
+    return handler(...args);
+  });
+updateHandler("folio:updates:get", () => updateState());
+updateHandler("folio:updates:check", async () => {
+  await checkForUpdates();
+  return updateState();
+});
+updateHandler("folio:updates:set-auto", async (on) => {
+  updater.autoUpdate = on === true;
+  const config = await loadConfig();
+  config.autoUpdate = updater.autoUpdate;
+  await saveConfig(config);
+  // Turning automatic updates off cancels one that was waiting for quit.
+  if (!updater.autoUpdate && pendingInstall && !pendingInstall.relaunch) {
+    pendingInstall = null;
+    updater.ready = "";
+  }
+  announceUpdates();
+  if (updater.autoUpdate) void installNewestOnQuit();
+  return updateState();
+});
+updateHandler("folio:updates:install", async (version) => {
+  if (updater.blocked) throw new Error("This copy of Folio cannot update.");
+  const update = updater.updates.find((u) => u.version === version);
+  if (!update) throw new Error("That update is no longer available.");
+  try {
+    await prepareInstall(update, true);
+  } catch (error) {
+    updater.error = error.message;
+    announceUpdates();
+    throw error;
+  }
+  // Quitting runs the installer, which opens the new version.
+  setTimeout(() => app.quit(), 300);
+  return updateState();
+});
 
 function buildMenu() {
   /** @type {Electron.MenuItemConstructorOptions[]} */
@@ -277,12 +430,13 @@ else {
     mainWindow.focus();
   });
   app.whenReady().then(async () => {
+    const config = await loadConfig();
     try {
       runtime = resolveRuntime({
         packaged: app.isPackaged,
         appRoot,
         userData: app.getPath("userData"),
-        config: await loadConfig(),
+        config,
       });
     } catch (error) {
       // A broken shared-server address falls back to this computer.
@@ -304,7 +458,7 @@ else {
     }
     buildMenu();
     createMainWindow();
-    updateOnQuit();
+    startUpdates(config);
     app.on("activate", () => {
       if (!mainWindow) createMainWindow();
     });

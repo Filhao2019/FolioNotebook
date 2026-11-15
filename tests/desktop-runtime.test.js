@@ -92,4 +92,8 @@ test("unreadable or unexpected settings files are ignored safely", () => {
   assert.deepEqual(readConfig('{"serverUrl":5,"dataDir":"D:/x"}'), {
     dataDir: "D:/x",
   });
+  // The Settings choice "Update automatically": Yes / No.
+  assert.deepEqual(readConfig('{"autoUpdate":false}'), { autoUpdate: false });
+  assert.deepEqual(readConfig('{"autoUpdate":true}'), { autoUpdate: true });
+  assert.deepEqual(readConfig('{"autoUpdate":"no"}'), {});
 });
