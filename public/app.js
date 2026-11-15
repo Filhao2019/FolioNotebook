@@ -1320,6 +1320,28 @@ function connectionsView() {
     { target: "_blank", rel: "noopener noreferrer", class: "small" },
     "Get an official API key",
   );
+  // One button for every provider: a CLI opens its own sign-in page, OpenRouter
+  // authorizes, and the rest open the page where the key is made.
+  const signIn = button(
+    "Sign in",
+    () =>
+      action(async () => {
+        const p = state.providers.find((p) => p.id === provider.value);
+        if (p.signin === "key")
+          return void window.open(p.docs, "_blank", "noopener");
+        if (p.signin === "oauth") {
+          const result = await api("oauth/openrouter/start", {
+            method: "POST",
+            data: {},
+          });
+          return void location.assign(result.url);
+        }
+        await api(`providers/${p.id}/signin`, { method: "POST", data: {} });
+        toast("Finish signing in in your browser, then choose Connect.");
+      }),
+    "",
+    "plug",
+  );
   const update = () => {
     const p = state.providers.find((p) => p.id === provider.value);
     help.href = p.docs;
@@ -1327,15 +1349,17 @@ function connectionsView() {
     key.required = !noKey;
     key.disabled = noKey;
     key.placeholder =
-      provider.value === "codex"
-        ? "Uses your local Codex sign-in"
+      p?.signin === "cli"
+        ? "No key needed: use Sign in"
         : provider.value === "ollama"
           ? "No key needed for local Ollama"
           : "Official API key";
     help.textContent =
       provider.value === "codex"
         ? "Uses the ChatGPT account signed in to Codex CLI on this computer. Plan usage limits apply."
-        : provider.value === "ollama"
+        : provider.value === "claude"
+          ? "Uses the Claude account signed in to Claude Code on this computer. Plan usage limits apply."
+          : provider.value === "ollama"
           ? "Install the free Ollama app, keep it running, then connect. You can download models from Folio afterwards."
           : "Get an official API key";
   };
@@ -1371,7 +1395,12 @@ function connectionsView() {
     el(
       "div",
       { class: "form-grid" },
-      field("Provider", provider),
+      el(
+        "div",
+        { class: "row provider-pick" },
+        field("Provider", provider),
+        signIn,
+      ),
       field("Connection name", label),
       el("div", { class: "span" }, field("API key", key)),
     ),
@@ -1388,19 +1417,6 @@ function connectionsView() {
       "div",
       { class: "row wrap" },
       submit,
-      button(
-        "Authorize with OpenRouter",
-        () =>
-          action(async () => {
-            const result = await api("oauth/openrouter/start", {
-              method: "POST",
-              data: {},
-            });
-            location.assign(result.url);
-          }),
-        "",
-        "plug",
-      ),
     ),
   );
   return el(

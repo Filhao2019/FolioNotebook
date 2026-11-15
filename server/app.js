@@ -16,7 +16,22 @@ import {
   RateLimiter,
 } from "./security.js";
 import { catalog, createProvider, ollamaLibrary } from "./providers.js";
-import { codexEnabled } from "./codex-provider.js";
+import { codexEnabled, startCliLogin } from "./codex-provider.js";
+import { claudeBin, claudeEnabled } from "./claude-provider.js";
+
+// Providers that use an account signed in to a CLI on this computer.
+const cliLogins = {
+  codex: {
+    name: "Codex CLI",
+    enabled: codexEnabled,
+    command: () => [process.env.CODEX_BIN || "codex", ["login"]],
+  },
+  claude: {
+    name: "Claude Code",
+    enabled: claudeEnabled,
+    command: () => [claudeBin(), ["auth", "login", "--claudeai"]],
+  },
+};
 import { validateUpload, createIngestor } from "./ingestion.js";
 import { fetchWebSource } from "./web-source.js";
 import { youtubeUrls, youtubeVideoId } from "./youtube.js";
@@ -823,14 +838,28 @@ export async function createApp(options = {}) {
           name: c.name,
           docs: c.docs,
           oauth: Boolean(c.oauth),
-          keyless: ["ollama", "codex"].includes(id),
+          keyless: id === "ollama" || id in cliLogins,
+          signin: id in cliLogins ? "cli" : c.oauth ? "oauth" : "key",
           ...(id === "ollama" ? { library: ollamaLibrary } : {}),
           available:
-            id === "codex"
-              ? codexEnabled()
+            id in cliLogins
+              ? cliLogins[id].enabled()
               : id !== "ollama" || process.env.ALLOW_LOCAL_MODELS === "true",
         })),
       );
+    if (path[0] === "providers" && path[2] === "signin" && method === "POST") {
+      limiter.take(`connect:${user}`, 6);
+      const login = cliLogins[path[1]];
+      assert(login, 404, "This provider has no sign-in here.");
+      assert(
+        login.enabled(),
+        403,
+        "The administrator must enable this local sign-in first.",
+      );
+      const [bin, args] = login.command();
+      await startCliLogin(bin, args, login.name, options.spawnProcess);
+      return json(res, { started: true });
+    }
     if (path[0] === "connections") {
       if (method === "GET" && path.length === 1) {
         const list = db
@@ -867,12 +896,15 @@ export async function createApp(options = {}) {
           "The administrator must enable local models first.",
         );
         assert(
-          input.provider !== "codex" || codexEnabled(),
+          !(input.provider in cliLogins) ||
+            cliLogins[input.provider].enabled(),
           403,
-          "The administrator must enable local Codex first.",
+          "The administrator must enable this local sign-in first.",
         );
         assert(
-          ["ollama", "codex"].includes(input.provider) || input.key.length > 8,
+          input.provider === "ollama" ||
+            input.provider in cliLogins ||
+            input.key.length > 8,
           400,
           "Enter an official API key, never an account password.",
         );

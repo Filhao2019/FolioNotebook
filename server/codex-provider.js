@@ -6,12 +6,40 @@ import { AppError, assert } from "./security.js";
 import { normalizeEffort, openaiEffort } from "./effort.js";
 
 // Auth stays inside the installed Codex CLI. Folio never reads its token files.
-export function codexEnabled() {
-  return (
-    process.env.ALLOW_CODEX === "true" &&
-    process.env.NODE_ENV !== "production" &&
-    ["127.0.0.1", "localhost", "::1"].includes(process.env.HOST || "127.0.0.1")
-  );
+// A local CLI account serves only a personal, loopback-only Folio.
+export const localCliEnabled = (flag) =>
+  process.env[flag] === "true" &&
+  process.env.NODE_ENV !== "production" &&
+  ["127.0.0.1", "localhost", "::1"].includes(process.env.HOST || "127.0.0.1");
+export const codexEnabled = () => localCliEnabled("ALLOW_CODEX");
+
+/**
+ * Starts a CLI's own browser sign-in. Folio never sees the credentials.
+ * @param {string} bin
+ * @param {string[]} args
+ * @param {string} name
+ */
+let pendingLogin = null;
+export function startCliLogin(bin, args, name, spawnProcess = spawn) {
+  return new Promise((done, fail) => {
+    // A login waits for the browser; only the newest one may wait, for 10 minutes.
+    pendingLogin?.kill();
+    const proc = spawnProcess(bin, args, { windowsHide: true, stdio: "ignore" });
+    pendingLogin = proc;
+    setTimeout(() => proc.kill(), 600000).unref();
+    proc.once("error", () =>
+      fail(
+        new AppError(
+          400,
+          `${name} is not installed on this computer. Install it, then sign in again.`,
+        ),
+      ),
+    );
+    proc.once("spawn", () => {
+      proc.unref();
+      done(undefined);
+    });
+  });
 }
 
 export const codexOverrides = {
@@ -143,7 +171,7 @@ class CodexClient {
 }
 
 // Plain text costs far fewer tokens than the same turns escaped inside JSON.
-const transcript = (messages) =>
+export const transcript = (messages) =>
   messages.length === 1
     ? messages[0].content
     : messages

@@ -17,6 +17,14 @@ All adapters are real network implementations. Repeatable tests use fixtures for
 
 ## Connect
 
+### Sign in button
+
+Beside the provider list in AI connections. For Codex and Claude it starts the CLI's own sign-in (`codex login`, `claude auth login --claudeai`), which opens the provider's page in your browser; finish there, then choose **Connect**. For OpenRouter it starts the authorization below. For the other providers it opens the page where an API key is made. The desktop app allows both CLI sign-ins by default; a server started by hand needs `ALLOW_CODEX=true` or `ALLOW_CLAUDE_CLI=true`.
+
+### Local Claude with Claude sign-in
+
+Install Claude Code, choose **Claude (Claude sign-in, local)** and use **Sign in**. Folio runs `claude -p` with no tools, MCP servers, skills, user settings or saved sessions, from an empty folder, and sends the prompt over private stdio. Claude Code manages authentication; Folio does not read its credentials. Models are the aliases `sonnet`, `opus` and `haiku`. Plan usage limits apply. The same loopback-only limits as Codex below apply, and Anthropic's terms for using a Claude subscription from other apps should be checked before this is offered to other people.
+
 ### Local Codex with ChatGPT sign-in
 
 For a personal instance bound to loopback, set `ALLOW_CODEX=true` in `.env` and install/sign in to Codex CLI with your ChatGPT account. If needed, set `CODEX_BIN` to the absolute executable path. Restart Folio, choose **Codex (ChatGPT sign-in, local)** in AI connections, name the connection, and connect without an API key. Select a discovered model in Chat. ChatGPT plan usage limits apply; model discovery alone does not verify inference access.

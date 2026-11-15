@@ -876,6 +876,13 @@
   .form-grid > .span {
     grid-column: 1/-1;
   }
+  .provider-pick {
+    align-items: flex-end;
+  }
+  .provider-pick > label {
+    flex: 1;
+    min-width: 0;
+  }
   .auth {
     min-height: 100vh;
     display: grid;

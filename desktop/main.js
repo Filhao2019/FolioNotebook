@@ -70,6 +70,9 @@ async function startLocalServer(dataDir, secretDir) {
   // The desktop app serves only this computer, so its own Ollama is allowed
   // unless the .env file turns it off.
   process.env.ALLOW_LOCAL_MODELS ??= "true";
+  // Same for the accounts signed in to its Codex and Claude CLIs.
+  process.env.ALLOW_CODEX ??= "true";
+  process.env.ALLOW_CLAUDE_CLI ??= "true";
   if (process.env.NODE_ENV === "production")
     process.env.NODE_ENV = "development";
   const port = await freePort();

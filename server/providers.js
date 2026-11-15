@@ -1,5 +1,6 @@
 import { AppError, assert } from "./security.js";
 import { createCodexProvider } from "./codex-provider.js";
+import { createClaudeProvider } from "./claude-provider.js";
 import {
   adaptiveClaude,
   claudeEffort,
@@ -16,6 +17,12 @@ export const catalog = {
     base: "",
     protocol: "codex",
     docs: "https://learn.chatgpt.com/docs/auth",
+  },
+  claude: {
+    name: "Claude (Claude sign-in, local)",
+    base: "",
+    protocol: "claude",
+    docs: "https://code.claude.com/docs/en/setup",
   },
   openai: {
     name: "OpenAI",
@@ -159,6 +166,7 @@ export async function* sseEvents(body) {
 }
 export function createProvider(providerId, key, options = {}) {
   if (providerId === "codex") return createCodexProvider(options);
+  if (providerId === "claude") return createClaudeProvider(options);
   const config = catalog[providerId];
   assert(config, 400, "Unknown provider.");
   const fetcher = options.fetcher || fetch;
