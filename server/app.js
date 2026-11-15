@@ -141,6 +141,8 @@ const publicUser = (row) => ({
 export async function createApp(options = {}) {
   // Requests per minute per client address; tests may raise it.
   const ipRequestLimit = options.ipRequestLimit ?? 240;
+  // Sign-in attempts per client address per ten minutes; tests may raise it.
+  const authRequestLimit = options.authRequestLimit ?? 12;
   const production =
     options.production ?? process.env.NODE_ENV === "production";
   const origin =
@@ -682,7 +684,7 @@ export async function createApp(options = {}) {
       ["register", "login", "guest"].includes(path[1]) &&
       method === "POST"
     ) {
-      limiter.take(`auth:${req.socket.remoteAddress}`, 12, 600000);
+      limiter.take(`auth:${req.socket.remoteAddress}`, authRequestLimit, 600000);
       const data = await body(req);
       let user;
       if (path[1] === "guest") {

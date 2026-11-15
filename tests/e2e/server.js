@@ -10,8 +10,12 @@ const app = await createApp({
   secretDirectory: join(directory, "keys"),
   origin: "http://127.0.0.1:4391",
   providerFactory: fixtureProvider,
-  // All browser scenarios share one loopback address within a minute.
+  // All browser scenarios share one loopback address within a minute, and
+  // every scenario signs in at least once: without raising these two limits the
+  // suite spends the whole 12-per-ten-minutes sign-in budget and later specs
+  // get 429 on POST /api/auth/guest.
   ipRequestLimit: 2000,
+  authRequestLimit: 200,
 });
 app.server.listen(4391, "127.0.0.1");
 for (const signal of ["SIGINT", "SIGTERM"])
