@@ -897,7 +897,7 @@ async function refreshData() {
 async function openNotebook(id, keep = true) {
   const data = await api("notebooks/" + id);
   const same = state.activeNotebook === id;
-  state.workspace = data;
+  state.workspace = keepUnsavedEffort(data);
   state.activeNotebook = id;
   if (!same || !keep)
     state.selected = new Set(
@@ -1776,13 +1776,36 @@ function effortControl(selected, onChange, model) {
   show(selected);
   return wrap;
 }
+// Effort levels whose save the server has not answered yet, by notebook.
+const unsavedEffort = new Map();
+/** A workspace loaded while an effort save is in flight keeps the level being saved. */
+const keepUnsavedEffort = (data) => {
+  const effort = unsavedEffort.get(data.notebook.id);
+  if (effort) data.notebook.settings.effort = effort;
+  return data;
+};
 async function saveEffort(effort, notebookId = state.activeNotebook) {
-  await api("notebooks/" + notebookId, {
-    method: "PATCH",
-    data: { settings: { effort } },
-  });
-  if (state.activeNotebook === notebookId)
-    state.workspace.notebook.settings.effort = effort;
+  // Applied at once, so a message sent before the server answers uses the
+  // level just chosen; put back if the save fails.
+  const current = () =>
+      state.activeNotebook === notebookId
+        ? state.workspace.notebook.settings
+        : null,
+    previous = current()?.effort;
+  if (current()) current().effort = effort;
+  unsavedEffort.set(notebookId, effort);
+  try {
+    await api("notebooks/" + notebookId, {
+      method: "PATCH",
+      data: { settings: { effort } },
+    });
+  } catch (error) {
+    if (current()?.effort === effort) current().effort = previous;
+    throw error;
+  } finally {
+    if (unsavedEffort.get(notebookId) === effort)
+      unsavedEffort.delete(notebookId);
+  }
 }
 // ---------------------------------------------------------------------------
 // Notebook workspace (three-panel layout modelled on Gemini Notebook)
@@ -8841,7 +8864,7 @@ setInterval(() => {
       for (const source of data.sources)
         if (source.status === "ready" && !previous.has(source.id))
           state.selected.add(source.id);
-      state.workspace = data;
+      state.workspace = keepUnsavedEffort(data);
       render();
     });
   }

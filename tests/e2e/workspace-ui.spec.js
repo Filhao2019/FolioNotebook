@@ -157,6 +157,14 @@ test("notebook workspace: home gallery, audio overview, menus, summary and chat 
   await expect(page.locator(".effort-pop .effort-hint")).toContainText(
     "Folio picks the effort for each task",
   );
+  // Hold the saves back: a message sent before the server answers must still
+  // use the level just chosen.
+  let slowSaves = true;
+  await page.route(/\/notebooks\/[^/]+$/, async (route) => {
+    if (slowSaves && route.request().method() === "PATCH")
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.continue();
+  });
   await slider.press("ArrowRight");
   await slider.press("ArrowRight");
   await expect(page.locator(".effort-pop .effort-title")).toHaveText("Extra");
@@ -177,6 +185,9 @@ test("notebook workspace: home gallery, audio overview, menus, summary and chat 
     ),
   ).toBeVisible();
   expect((await chatRequest).postDataJSON().effort).toBe("extra");
+  // The workspace reloads after the answer, while the save is still held.
+  await expect(effortButton).toHaveAccessibleName("Effort: Extra");
+  slowSaves = false;
   await expect(effortButton).toHaveAccessibleName("Effort: Extra");
   await expect(
     page.getByRole("group", { name: "Suggested questions" }),
