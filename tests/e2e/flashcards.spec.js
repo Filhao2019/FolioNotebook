@@ -243,6 +243,14 @@ test("flashcards: create, flip, explain, ask, navigate, reduced motion; quiz con
   await page.keyboard.press("Escape");
   await expect(count).toHaveText("Card 1 of 3");
   await expect(card).toHaveClass(/is-flipped/);
+  // Closing the citation in the frame it opened delivers both close events
+  // after the dialog is already shut; the deck must still come back.
+  await page.evaluate(() => {
+    document.querySelector(".fc-back .citation-source").click();
+    document.querySelector("#dialog").close();
+  });
+  await expect(count).toHaveText("Card 1 of 3");
+  await expect(card).toHaveClass(/is-flipped/);
 
   // Edit, regenerate, flag, the Flagged mode and delete of one card.
   const menu = page.locator(".fc-menu");

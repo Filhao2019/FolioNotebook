@@ -6463,24 +6463,25 @@ function flashcardModal(a, options = {}) {
     tally: [...tally],
   });
   // A citation replaces this dialog; closing that citation restores the
-  // session. The listener exists only while this very citation dialog is open
-  // and removes itself on the first close, whatever closed it.
+  // session. The citation button's own handler has already run when the click
+  // reaches here, so the citation dialog is identified now rather than from
+  // the order of close events: the deck's own close event arrives a frame
+  // later, possibly after the citation was closed too.
   body.addEventListener("click", (e) => {
     if (!e.target.closest(".citation, .citation-source")) return;
-    const resumeAt = snapshot();
-    let citation = null;
+    if (body.isConnected || !dialog.open) return;
+    const resumeAt = snapshot(),
+      citation = dialog.querySelector(".dialog-body");
     const restore = () => {
-      const current = dialog.querySelector(".dialog-body");
       if (dialog.open) {
-        // The close event of this deck being replaced by the citation, or of
-        // the citation being replaced by something else.
-        if (!citation && !body.isConnected) citation = current;
-        else if (citation !== current)
+        // Still showing the citation: this is the deck's late close event.
+        // Showing anything else: the citation was replaced, so stand down.
+        if (dialog.querySelector(".dialog-body") !== citation)
           dialog.removeEventListener("close", restore);
         return;
       }
       dialog.removeEventListener("close", restore);
-      if (citation?.isConnected) flashcardModal(a, { resume: resumeAt });
+      if (citation.isConnected) flashcardModal(a, { resume: resumeAt });
     };
     dialog.addEventListener("close", restore);
   });
