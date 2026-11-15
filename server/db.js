@@ -76,6 +76,7 @@ export function openDatabase(directory) {
     ["cards", "last_rating", "INTEGER"],
     ["cards", "detail", "TEXT"],
     ["card_reviews", "rating", "INTEGER"],
+    ["cards", "tag", "TEXT DEFAULT ''"],
   ])
     if (!hasColumn(table, column))
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);

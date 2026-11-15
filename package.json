@@ -1,7 +1,7 @@
 {
   "name": "folio-study",
   "productName": "Folio",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Folio — your sources, your AI, your way of learning.",
   "author": "Filhao2019",
   "license": "MIT",
@@ -103,6 +103,7 @@
       }
     },
     "nsis": {
+      "artifactName": "Folio-Setup-${version}.${ext}",
       "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": "always",

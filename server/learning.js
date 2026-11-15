@@ -7,6 +7,7 @@ const flashcard = z.object({
   back: text,
   hint: z.string().max(1000).default(""),
   explanation: z.string().max(2000).default(""),
+  tag: z.string().max(40).default(""),
   refs,
 });
 export const schemas = {
@@ -112,8 +113,12 @@ export const schemas = {
             question: text,
             options: z.array(text).min(2).max(6),
             answer: z.number().int().min(0),
+            hint: z.string().max(600).default(""),
             explanation: text,
+            // Why each wrong option is wrong, keyed by its option index.
+            explainWrong: z.record(z.string(), z.string().max(600)).default({}),
             topic: text,
+            difficulty: z.number().int().min(1).max(3).default(2),
             refs,
           })
           .refine(
@@ -182,14 +187,14 @@ export const shapes = {
   guide:
     '{"title":"...","markdown":"headings, definitions, examples, common mistakes, review questions, citations [1]","coveredTopics":["..."],"refs":[1]}',
   flashcards:
-    '{"title":"...","cards":[{"front":"...","back":"...","hint":"...","explanation":"...","refs":[1]}]}',
+    '{"title":"...","cards":[{"front":"...","back":"...","hint":"...","explanation":"...","tag":"...","refs":[1]}]}',
   flashcardsLean:
-    '{"title":"...","cards":[{"front":"...","back":"...","hint":"...","refs":[1]}]}',
+    '{"title":"...","cards":[{"front":"...","back":"...","hint":"...","tag":"...","refs":[1]}]}',
   explain:
     '{"why":"...","detail":"...","simple":"...","example":"...","takeaway":"...","refs":[1],"followUp":{"front":"...","back":"..."}}',
   cardRewrite:
     '{"front":"...","back":"...","hint":"...","explanation":"...","refs":[1]}',
-  quiz: '{"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"answer":0,"explanation":"...","topic":"...","refs":[1]}]}',
+  quiz: '{"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"answer":0,"hint":"...","explanation":"why the answer is right","explainWrong":{"1":"why option 1 is wrong","2":"...","3":"..."},"topic":"...","difficulty":2,"refs":[1]}]}',
   mindmap:
     '{"title":"...","nodes":[{"id":"root","parent":null,"label":"...","detail":"...","refs":[1]},{"id":"child","parent":"root","label":"...","detail":"...","refs":[1]}]}',
   table:
@@ -355,6 +360,7 @@ export function scoreQuiz(questions, answers) {
     answer: q.answer,
     correct: answers[i] === q.answer,
     explanation: q.explanation,
+    explainWrong: q.explainWrong || {},
     refs: q.refs,
   }));
   const correct = results.filter((x) => x.correct).length;
@@ -371,17 +377,26 @@ export function scoreQuiz(questions, answers) {
 export function safeQuiz(content) {
   return {
     ...content,
-    questions: content.questions.map(({ question, options, topic }) => ({
-      question,
-      options,
-      topic,
-    })),
+    questions: content.questions.map(
+      ({ question, options, topic, hint, difficulty }) => ({
+        question,
+        options,
+        topic,
+        hint: hint || "",
+        difficulty: difficulty || 2,
+      }),
+    ),
   };
 }
 // Each kind's own rules; sending every kind's rules on every request cost
 // tokens and told the model nothing it needed.
+// The quiz and flashcard rules are the question-writing rules of the
+// notebooklm-quiz and notebooklm-flashcards skills, shortened for a prompt.
 const kindRules = {
-  quiz: "Answer is a zero-based option index.",
+  quiz:
+    "Answer is a zero-based option index. Each question tests one concept, and its stem is a complete question a learner can answer before reading the options. Give exactly four options with one best answer; never use 'all of the above', 'none of the above' or 'A and B'. Build wrong options from real misconceptions, near-miss terms, off-by-one values or reversed cause and effect. Keep the options parallel in length and grammar, so the right one is not the longest or most detailed. Spread the right answer evenly over the four positions, never more than twice in a row at one position. Avoid negative stems. hint: point to the relevant idea without containing or paraphrasing the answer. explanation: one or two sentences on why the right answer is right, giving the mechanism. explainWrong: for every wrong option, keyed by its zero-based index, one short line on why it is wrong and what it actually describes. topic: at most three words. difficulty: 1 recall, 2 understanding or application, 3 analysis; mix them within the requested difficulty.",
+  flashcards:
+    "One idea per card. The front is a question, or a sentence with one gap written as ____; never a topic label and never a yes/no question, and it makes clear what shape the answer takes. The back is one sentence or a list of at most five items; for a gap sentence it is the missing term only. Mix the card types: direct question, gap sentence, why or mechanism, comparison of two things, ordered steps, formula. hint: a nudge that does not contain the answer. tag: a topic of at most three words. Order the cards from foundational to dependent, mix the types, and never let one card give away the next.",
   mindmap: "Use one root, unique IDs, no cycles.",
   slides:
     "Create a clear teaching sequence with concise bullet points, speaker notes, and source refs on each slide. Produce text slides only; do not claim generated images or audio.",

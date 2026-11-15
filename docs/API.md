@@ -36,6 +36,7 @@ All paths start with `/api`. JSON request/response bodies use UTF-8. Errors are 
 | `POST /artifacts/:id/cards`                       | Manual card `{front,back}`                                                       |
 | `POST /artifacts/:id/cards/import`                | Atomic `{cards:[{front,back}]}`, maximum 100                                     |
 | `POST /artifacts/:id/attempt`                     | `{answers:[optionIndexOrNull,...]}`; saved deterministic score and explanations  |
+| `POST /artifacts/:quizId/check`                   | `{index,answer}`; practice mode checks one answer: `{correct,answer,explanation,explainWrong,refs}`; nothing is saved |
 | `POST /artifacts/:quizId/flashcards`              | `{attemptId?,answers?}`; new "Missed: ..." deck from wrong answers, no AI call; `201 {id,count}` |
 | `PATCH/DELETE /cards/:id`                         | Edit front/back/hint/explanation/flag (front/back edits clear the cached detail), delete |
 | `POST /cards/:id/review`                          | `{rating:1..4}` (or legacy `{grade:0..5}`); saved FSRS schedule, review record and next-interval `preview` |

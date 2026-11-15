@@ -124,8 +124,14 @@ test("flashcards: create, flip, explain, ask, navigate, reduced motion; quiz con
     back = page.locator(".fc-back"),
     count = page.locator(".fc-count");
   await expect(count).toHaveText("Card 1 of 2");
+  // The study screens use their own font; it must really load, not fall back.
+  expect((await page.request.get("/fonts/figtree.ttf")).status()).toBe(200);
+  await expect
+    .poll(() => page.evaluate(() => document.fonts.check("16px Figtree")))
+    .toBe(true);
   await expect(card).toHaveAttribute("aria-pressed", "false");
-  await expect(card).toHaveCSS("transition-duration", "0.52s");
+  // The flip is a scripted animation; the class swap itself is instant.
+  await expect(card).toHaveCSS("transition-duration", "0s");
   await expect(front).toHaveCSS("backface-visibility", "hidden");
   await expect(back).toHaveCSS("backface-visibility", "hidden");
   await expect(front).toHaveJSProperty("inert", false);
@@ -167,7 +173,7 @@ test("flashcards: create, flip, explain, ask, navigate, reduced motion; quiz con
   await panel.getByRole("button", { name: "Add as a new card" }).click();
   await expect(page.getByRole("button", { name: /^All 3/ })).toBeVisible();
 
-  await page.getByRole("button", { name: /^Good \d/ }).click();
+  await page.getByRole("button", { name: /^Got it/ }).click();
   await expect(count).toHaveText("Card 2 of 2");
   await expect(card).not.toHaveClass(/is-flipped/);
   await expect(page.locator(".progress-bar")).toHaveAttribute(
@@ -293,10 +299,46 @@ test("flashcards: create, flip, explain, ask, navigate, reduced motion; quiz con
   const noteRequest = page.waitForRequest(generating);
   await dialog.getByRole("button", { name: "Generate", exact: true }).click();
   expect((await noteRequest).postDataJSON().sourceIds).toHaveLength(2);
-  await page.getByLabel("ATP", { exact: true }).check();
-  await page.getByLabel("Cell wall", { exact: true }).check();
-  await page.getByRole("button", { name: "Submit quiz" }).click();
-  await expect(page.getByRole("heading", { name: "50% — 1/2" })).toBeVisible();
+  // Practice mode: each answer is checked at once, with its explanation.
+  await dialog.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(dialog.locator(".qz-label")).toContainText("Question 1 of 2");
+  await expect(dialog.getByRole("button", { name: "Next", exact: true })).toBeDisabled();
+  await page.keyboard.press("h");
+  await expect(dialog.getByText("Think about what respiration produces.")).toBeVisible();
+  await dialog.getByRole("radio", { name: /ATP$/ }).click();
+  await expect(dialog.locator(".qz-verdict")).toHaveText("Correct");
+  await expect(dialog.getByText("energy is transferred into ATP")).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(dialog.locator(".qz-label")).toContainText("Question 2 of 2");
+  await dialog.getByRole("radio", { name: /Cell wall$/ }).click();
+  await expect(dialog.locator(".qz-verdict")).toHaveText("Not quite");
+  await expect(dialog.locator(".qz-option.is-right")).toContainText("Mitochondria");
+  // An answered question is locked; going back shows it as it was left.
+  await page.keyboard.press("ArrowLeft");
+  await expect(dialog.locator(".qz-verdict")).toHaveText("Correct");
+  await page.keyboard.press("ArrowRight");
+  await dialog.getByRole("button", { name: "See results" }).click();
+  await expect(dialog.getByRole("img", { name: "50% 1 / 2" })).toBeVisible();
+  await expect(dialog.getByText("Hints used")).toBeVisible();
+  await expect(dialog.locator(".qz-topic").first()).toContainText("Organelles");
+  // Review lists every question; the filter narrows it to the wrong ones.
+  await dialog.getByRole("button", { name: "Review answers" }).click();
+  await dialog.getByRole("button", { name: "Incorrect", exact: true }).click();
+  await expect(dialog.locator(".qz-label")).toContainText("Question 1 of 1");
+  await expect(dialog.locator(".qz-stem")).toHaveText("Where does aerobic respiration occur?");
+  await dialog.getByRole("button", { name: "Finish review" }).click();
+  // Retry missed asks only the wrong question again.
+  await dialog.getByRole("button", { name: "Retry missed (1)" }).click();
+  await expect(dialog.locator(".qz-label")).toContainText("Question 1 of 1");
+  await dialog.getByRole("radio", { name: /Mitochondria$/ }).click();
+  await dialog.getByRole("button", { name: "See results" }).click();
+  await expect(dialog.getByRole("img", { name: "100% 1 / 1" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Retake all" }).click();
+  await dialog.getByRole("radio", { name: /ATP$/ }).click();
+  await dialog.getByRole("button", { name: "Next", exact: true }).click();
+  await dialog.getByRole("radio", { name: /Cell wall$/ }).click();
+  await dialog.getByRole("button", { name: "See results" }).click();
+  await expect(dialog.getByRole("img", { name: "50% 1 / 2" })).toBeVisible();
   await page
     .getByRole("button", { name: "Make flashcards from missed answers" })
     .click();
@@ -306,7 +348,7 @@ test("flashcards: create, flip, explain, ask, navigate, reduced motion; quiz con
   await expect(page.locator(".fc-count")).toHaveText("Card 1 of 1");
 
   await page.locator(".fc-card").click();
-  await page.keyboard.press("3");
+  await page.keyboard.press("2");
   await expect(
     page.getByRole("heading", { name: "Study session complete" }),
   ).toBeVisible();

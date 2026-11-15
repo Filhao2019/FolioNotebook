@@ -642,3 +642,55 @@ test("transcripts prefer the notebook's language", async () => {
     await h.stop();
   }
 });
+
+test("practice mode checks one answer at a time and never sends the key with the quiz", async () => {
+  const h = await start(4571);
+  try {
+    const { user, generate } = await learner(h, "ana");
+    const quiz = (await generate({ kind: "quiz" })).data;
+    // The quiz itself carries hints and difficulty, but no answers or explanations.
+    assert.deepEqual(quiz.content.questions[0], {
+      question: "Which molecule stores transferred energy?",
+      options: ["ATP", "Cellulose", "Water"],
+      topic: "Cellular respiration",
+      hint: "Think about what respiration produces.",
+      difficulty: 1,
+    });
+    assert.deepEqual(
+      [quiz.content.questions[1].hint, quiz.content.questions[1].difficulty],
+      ["", 2],
+    );
+    const check = (body) =>
+      user.call(`artifacts/${quiz.id}/check`, "POST", body);
+    const wrong = await check({ index: 0, answer: 2 });
+    assert.equal(wrong.status, 200);
+    assert.equal(wrong.data.correct, false);
+    assert.equal(wrong.data.answer, 0);
+    assert.match(wrong.data.explanation, /transferred into ATP/);
+    assert.equal(wrong.data.explainWrong[2], "Water is a product, not an energy store.");
+    assert.deepEqual(wrong.data.refs, [1]);
+    const right = await check({ index: 1, answer: 1 });
+    assert.equal(right.data.correct, true);
+    assert.deepEqual(right.data.explainWrong, {});
+    assert.equal((await check({ index: 2, answer: 0 })).status, 400);
+    assert.equal((await check({ index: 0 })).status, 400);
+    // The finished attempt lists why each wrong option is wrong.
+    const attempt = (
+      await user.call(`artifacts/${quiz.id}/attempt`, "POST", { answers: [1, 1] })
+    ).data;
+    assert.equal(attempt.results[0].explainWrong[1], "Cellulose builds plant cell walls.");
+    // Flashcards keep their topic tag.
+    const deck = (await generate({ kind: "flashcards" })).data;
+    assert.deepEqual(
+      deck.cards.map((c) => c.tag),
+      ["Organelles", ""],
+    );
+    assert.equal(
+      (await user.call(`artifacts/${deck.id}/check`, "POST", { index: 0, answer: 0 }))
+        .status,
+      400,
+    );
+  } finally {
+    await h.stop();
+  }
+});

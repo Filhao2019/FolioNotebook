@@ -18,7 +18,10 @@ const state = {
   collapsed: new Set(),
   drafts: new Map(),
   locale: localStorage.getItem("folio-locale") || "en",
+  updates: null, // desktop app only: see "Desktop updates"
 };
+// The Folio desktop app's update controls; null in a browser.
+const desktopUpdates = window.folioDesktop?.updates || null;
 const pt = {
   Dashboard: "Visão geral",
   "My notebooks": "Meus cadernos",
@@ -103,6 +106,38 @@ const pt = {
   "Interface language": "Idioma da interface",
   "Folio version": "Versão do Folio",
   "You are running Folio": "Você está usando o Folio",
+  "New update": "Nova atualização",
+  Updates: "Atualizações",
+  "Update automatically": "Atualizar automaticamente",
+  Yes: "Sim",
+  No: "Não",
+  "Folio downloads new versions by itself and installs them when you quit.":
+    "O Folio baixa as novas versões sozinho e as instala quando você o fecha.",
+  "Folio still checks for new versions. When one is out, a New update button appears in the top bar and you choose when to install it.":
+    "O Folio continua procurando novas versões. Quando sair uma, aparece o botão Nova atualização na barra superior e você escolhe quando instalar.",
+  "Updates work in the installed app. This copy runs from the source code.":
+    "As atualizações funcionam no aplicativo instalado. Esta cópia roda a partir do código-fonte.",
+  "This copy of Folio does not update itself. Download new versions from GitHub.":
+    "Esta cópia do Folio não se atualiza sozinha. Baixe as novas versões no GitHub.",
+  "Check for updates": "Procurar atualizações",
+  "Checking for updates…": "Procurando atualizações…",
+  "Folio is up to date.": "O Folio está atualizado.",
+  "View updates": "Ver atualizações",
+  "1 update can be installed.": "1 atualização pode ser instalada.",
+  "updates can be installed.": "atualizações podem ser instaladas.",
+  "will install when you quit Folio.":
+    "será instalado quando você fechar o Folio.",
+  Downloading: "Baixando",
+  "Downloading…": "Baixando…",
+  Install: "Instalar",
+  Latest: "Mais recente",
+  "No release notes.": "Sem notas da versão.",
+  "Installing closes Folio, puts the new version in place and opens it again. Your notebooks and settings are kept.":
+    "Instalar fecha o Folio, coloca a nova versão no lugar e o abre de novo. Seus cadernos e configurações são mantidos.",
+  "Installing the update. Folio will reopen.":
+    "Instalando a atualização. O Folio vai abrir de novo.",
+  "Folio is up to date. There is nothing to install.":
+    "O Folio está atualizado. Não há nada para instalar.",
   "Explanation language": "Idioma das explicações",
   Theme: "Tema",
   Light: "Claro",
@@ -569,6 +604,9 @@ const paths = {
     "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z",
   tag: "M3 4h8l10 10-7 7L4 11z M7.5 8h.01",
   shuffle: "M16 3h5v5 M4 20 21 3 M21 16v5h-5 M15 15l6 6 M4 4l5 5",
+  flag: "M5 21V4 M5 4h13l-2.5 4.5L18 13H5",
+  help: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20 M9.6 9.2a2.5 2.5 0 1 1 3.6 2.2c-.8.5-1.2 1-1.2 1.9 M12 17h.01",
+  keyboard: "M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M8 14h8",
 };
 function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1076,6 +1114,7 @@ function topbar() {
     el(
       "div",
       { class: "top-actions" },
+      newUpdateButton("small"),
       el("span", { class: "badge" }, icon("book"), t("Source-grounded")),
       iconButton("settings", "Settings", () => nav("settings")),
       iconButton("sun", "Theme", () =>
@@ -2884,6 +2923,7 @@ function workspaceView() {
       el(
         "div",
         { class: "gn-top-actions" },
+        newUpdateButton("gn-pill"),
         button(
           "New notebook",
           newNotebook,
@@ -5681,12 +5721,15 @@ function flashcardModal(a, options = {}) {
     confirming = null,
     reveal = null,
     rate = null,
-    flipTimer,
+    flipAnim = null,
+    target = null,
+    drag = null,
+    dragged = false,
     swapTimer;
   const explained = new Map(),
     threads = new Map(),
     askBoxes = new Map();
-  const body = el("div", { class: "fc-study stack" });
+  const body = el("div", { class: "fc-study study stack" });
   const front = el("div", { class: "fc-face fc-front" }),
     back = el("div", { class: "fc-face fc-back" });
   const card = el(
@@ -5697,7 +5740,7 @@ function flashcardModal(a, options = {}) {
       tabindex: 0,
       "aria-pressed": "false",
       onClick: (e) => {
-        if (!e.target.closest("button, a")) flip();
+        if (!dragged && !e.target.closest("button, a")) flip();
       },
       onKeydown: (e) => {
         if (e.target !== card) return;
@@ -5718,6 +5761,14 @@ function flashcardModal(a, options = {}) {
     t("Regenerating…"),
   );
   const scene = el("div", { class: "fc-scene" }, card, working);
+  // Two ghost cards behind the active one, so it reads as a deck.
+  const deck = el(
+    "div",
+    { class: "fc-stack" },
+    el("div", { class: "fc-ghost fc-g2" }),
+    el("div", { class: "fc-ghost fc-g1" }),
+    scene,
+  );
   const modeButtons = Object.keys(modeNames).map((m) =>
     el("button", {
       type: "button",
@@ -5783,7 +5834,7 @@ function flashcardModal(a, options = {}) {
     stage = el(
       "div",
       { class: "fc-stage stack" },
-      scene,
+      deck,
       el("div", { class: "fc-nav" }, prev, centre, next),
       actions,
       panel,
@@ -5840,6 +5891,16 @@ function flashcardModal(a, options = {}) {
       ),
     ),
   );
+  const keys = shortcutList([
+    ["Space", "Flip"],
+    ["← →", "Previous / next"],
+    ["1 / 2", "Still learning / Got it"],
+    ["H", "Hint"],
+    ["E", "Explain"],
+    ["S", "Flag"],
+    ["Shift+S", "Shuffle"],
+    ["R", "Restart"],
+  ]);
   const toolbar = el(
     "div",
     { class: "fc-toolbar" },
@@ -5854,6 +5915,7 @@ function flashcardModal(a, options = {}) {
       { class: "fc-tools" },
       iconButton("shuffle", "Shuffle", shuffle),
       iconButton("refresh", "Restart", () => setMode(mode)),
+      keys,
       more,
     ),
   );
@@ -5885,10 +5947,20 @@ function flashcardModal(a, options = {}) {
   const flip = () => {
     if (swapping || regenerating || !list[index]) return;
     flipped = !flipped;
-    card.classList.add("is-flipping");
-    clearTimeout(flipTimer);
-    flipTimer = setTimeout(() => card.classList.remove("is-flipping"), 600);
     syncFlip();
+    flipAnim?.cancel();
+    if (reduced()) return;
+    // Picked up, turned and put down. The turn always runs the same way, and
+    // ends on the angle the class above already holds.
+    const from = flipped ? 0 : 180;
+    flipAnim = card.animate(
+      [
+        { transform: `rotateY(${from}deg)` },
+        { transform: `rotateY(${from + 90}deg) translateZ(60px) scale(1.035)` },
+        { transform: `rotateY(${from + 180}deg)` },
+      ],
+      { duration: 640, easing: "cubic-bezier(.34,1.2,.5,1)" },
+    );
   };
   const renderModes = () => {
     const n = counts();
@@ -5909,19 +5981,13 @@ function flashcardModal(a, options = {}) {
     track.setAttribute("aria-valuenow", String(index + 1));
     prev.disabled = index === 0;
   };
+  // Two grades, as in the notebooklm-flashcards design. Spaced repetition
+  // still runs underneath: Still learning is FSRS Again, Got it is Good.
   const rateButtons = (c) =>
-    (spaced
-      ? [
-          [1, "Again", "again"],
-          [2, "Hard", "hard"],
-          [3, "Good", "good"],
-          [4, "Easy", "easy"],
-        ]
-      : [
-          [1, "Study again", "again"],
-          [3, "Know it", "good"],
-        ]
-    ).map(([value, name, key]) =>
+    [
+      [1, "Still learning", "again", 1],
+      [3, "Got it", "good", 2],
+    ].map(([value, name, key, shortcut]) =>
       el(
         "button",
         {
@@ -5938,7 +6004,7 @@ function flashcardModal(a, options = {}) {
               intervalLabel(c.preview[key]),
             )
           : null,
-        el("kbd", {}, value),
+        el("kbd", {}, shortcut),
       ),
     );
   /** Paint the faces, controls and menu for the current card (not on flip). */
@@ -5951,15 +6017,30 @@ function flashcardModal(a, options = {}) {
     const refs = a.citations.filter((ref) => c.refs.includes(ref.id));
     const fill = (node, ...kids) =>
       node.replaceChildren(...kids.filter(Boolean));
+    // A gap card ("____" in the front) shows a blank, then the sentence
+    // with the answer filled in.
+    const parts = c.front.split(/_{3,}/),
+      gap = parts.length === 2,
+      size = (text) => "fc-text" + (text.length > 140 ? " is-long" : "");
     fill(
       front,
       el(
         "div",
         { class: "fc-top" },
-        el("span", { class: "badge" }, t("Front")),
+        el("span", { class: "fc-label" }, c.tag || t("Question")),
         flag,
       ),
-      el("p", { class: "fc-text" }, c.front),
+      el(
+        "p",
+        { class: size(c.front) },
+        gap
+          ? [
+              parts[0],
+              el("span", { class: "fc-blank", "aria-label": t("blank") }),
+              parts[1],
+            ]
+          : c.front,
+      ),
       c.hint
         ? el(
             "div",
@@ -5982,10 +6063,16 @@ function flashcardModal(a, options = {}) {
       el(
         "div",
         { class: "fc-top" },
-        el("span", { class: "badge" }, t("Back")),
+        el("span", { class: "fc-label" }, t("Answer")),
         flag?.cloneNode(true),
       ),
-      el("p", { class: "fc-text" }, c.back),
+      el(
+        "p",
+        { class: size(gap ? c.front : c.back) },
+        gap
+          ? [parts[0], el("mark", { class: "fc-fill" }, c.back), parts[1]]
+          : c.back,
+      ),
       c.explanation ? el("p", { class: "fc-note" }, c.explanation) : null,
       refs.length ? citationButtons(refs) : null,
     );
@@ -5999,7 +6086,9 @@ function flashcardModal(a, options = {}) {
   const render = () => {
     clearTimeout(swapTimer);
     swapping = false;
+    target = null;
     scene.className = "fc-scene";
+    deck.classList.remove("is-advancing");
     renderModes();
     panelOpen = false;
     editing = false;
@@ -6031,39 +6120,45 @@ function flashcardModal(a, options = {}) {
     );
   const summary = () => {
     const n = counts(),
-      names = spaced
-        ? ["Again", "Hard", "Good", "Easy"]
-        : ["Study again", null, "Know it", null];
+      known = tally[2],
+      learning = tally[0],
+      graded = known + learning;
     return el(
       "div",
       { class: "fc-summary stack" },
-      icon("check"),
+      scoreRing(graded ? Math.round((known / graded) * 100) : 0, t("known")),
       el("h2", {}, t("Study session complete")),
-      el(
-        "p",
-        { class: "muted" },
-        `${t("Cards reviewed")}: ${tally.reduce((sum, x) => sum + x, 0)}`,
-      ),
       el(
         "div",
         { class: "fc-tally" },
-        names.map((name, i) =>
-          name
-            ? el("div", {}, el("strong", {}, tally[i]), el("span", {}, t(name)))
-            : null,
+        el(
+          "div",
+          { class: "is-good" },
+          el("strong", {}, known),
+          el("span", {}, t("Got it")),
+        ),
+        el(
+          "div",
+          { class: "is-warn" },
+          el("strong", {}, learning),
+          el("span", {}, t("Still learning")),
         ),
       ),
       el(
         "div",
         { class: "row wrap fc-end-actions" },
         n.missed
-          ? button("Review missed cards", () => setMode("missed"), "primary")
+          ? button(
+              t("Review {n} missed").replace("{n}", n.missed),
+              () => setMode("missed"),
+              "primary",
+            )
           : null,
-        button(
-          "Study all cards",
-          () => setMode("all"),
-          n.missed ? "" : "primary",
-        ),
+        button("Restart all", () => setMode("all"), n.missed ? "" : "primary"),
+        button("Shuffle and restart", () => {
+          setMode("all");
+          shuffle();
+        }),
         editOnly(
           button(
             "Make a quiz from this deck",
@@ -6078,17 +6173,29 @@ function flashcardModal(a, options = {}) {
   };
   /** Slide to another card, or to the summary after the last one. */
   const go = (to) => {
-    if (swapping || regenerating || to < 0 || to > list.length || to === index)
-      return;
+    if (regenerating) return;
+    // A key pressed mid-slide finishes that slide at once instead of being lost.
+    if (swapping) {
+      if (target !== null) {
+        index = target;
+        flipped = false;
+      }
+      render();
+      if (stage.hidden) return;
+    }
+    if (to < 0 || to > list.length || to === index) return;
     const dir = to > index ? "next" : "prev",
       instant = reduced();
     swapping = true;
+    target = to;
     scene.className = "fc-scene fc-out-" + dir;
     swapTimer = setTimeout(
       () => {
         index = to;
+        target = null;
         flipped = false;
         if (index >= list.length) return render();
+        deck.classList.toggle("is-advancing", dir === "next");
         panelOpen = false;
         editing = false;
         confirming = null;
@@ -6100,16 +6207,23 @@ function flashcardModal(a, options = {}) {
         swapTimer = setTimeout(
           () => {
             scene.className = "fc-scene";
+            deck.classList.remove("is-advancing");
             swapping = false;
             const f = document.activeElement;
             if (!f || !body.contains(f) || f.closest("[hidden]"))
               card.focus({ preventScroll: true });
           },
-          instant ? 0 : 150,
+          instant ? 0 : 320,
         );
       },
-      instant ? 0 : 120,
+      instant ? 0 : 200,
     );
+  };
+  /** A short note under the card, such as when a card will come back. */
+  const chip = (text) => {
+    const node = el("p", { class: "fc-chip", role: "status" }, text);
+    body.append(node);
+    setTimeout(() => node.remove(), 1600);
   };
   const grade = async (value) => {
     const c = list[index];
@@ -6124,6 +6238,11 @@ function flashcardModal(a, options = {}) {
       });
       Object.assign(c, result, { lastRating: value });
       tally[value - 1]++;
+      // A card still being learned comes back three cards later.
+      if (value === 1) {
+        list.splice(Math.min(index + 4, list.length), 0, c);
+        chip(t("Back in 3 cards"));
+      }
       renderModes();
       go(index + 1);
     } catch (error) {
@@ -6447,6 +6566,17 @@ function flashcardModal(a, options = {}) {
     editing = next === "edit";
     renderMenu();
   };
+  const toggleFlag = (c) =>
+    action(async () => {
+      await api("cards/" + c.id, {
+        method: "PATCH",
+        data: { flagged: !c.flagged },
+      });
+      c.flagged = !c.flagged;
+      toast(c.flagged ? "Card flagged." : "Flag removed.");
+      renderModes();
+      paintCard();
+    });
   const renderMenu = () => {
     const c = list[index];
     menu.replaceChildren();
@@ -6500,17 +6630,7 @@ function flashcardModal(a, options = {}) {
       button("Regenerate", () => choose("regenerate"), "quiet small", "wand"),
       button(
         c.flagged ? "Unflag" : "Flag",
-        () =>
-          action(async () => {
-            await api("cards/" + c.id, {
-              method: "PATCH",
-              data: { flagged: !c.flagged },
-            });
-            c.flagged = !c.flagged;
-            toast(c.flagged ? "Card flagged." : "Flag removed.");
-            renderModes();
-            paintCard();
-          }),
+        () => toggleFlag(c),
         "quiet small",
         "pin",
       ),
@@ -6526,49 +6646,69 @@ function flashcardModal(a, options = {}) {
     flipped,
     tally: [...tally],
   });
-  // A citation replaces this dialog; closing that citation restores the
-  // session. The citation button's own handler has already run when the click
-  // reaches here, so the citation dialog is identified now rather than from
-  // the order of close events: the deck's own close event arrives a frame
-  // later, possibly after the citation was closed too.
-  body.addEventListener("click", (e) => {
-    if (!e.target.closest(".citation, .citation-source")) return;
-    if (body.isConnected || !dialog.open) return;
-    const resumeAt = snapshot(),
-      citation = dialog.querySelector(".dialog-body");
-    const restore = () => {
-      if (dialog.open) {
-        // Still showing the citation: this is the deck's late close event.
-        // Showing anything else: the citation was replaced, so stand down.
-        if (dialog.querySelector(".dialog-body") !== citation)
-          dialog.removeEventListener("close", restore);
-        return;
-      }
-      dialog.removeEventListener("close", restore);
-      if (citation.isConnected) flashcardModal(a, { resume: resumeAt });
-    };
-    dialog.addEventListener("close", restore);
+  resumeAfterCitation(dialog, body, () => {
+    const at = snapshot();
+    return () => flashcardModal(a, { resume: at });
   });
+  // Drag or swipe the card sideways to move; a tap still flips it.
+  card.addEventListener("pointerdown", (e) => {
+    if (e.button || swapping || e.target.closest("button, a")) return;
+    drag = { x: e.clientX, at: e.timeStamp, dx: 0 };
+  });
+  card.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    drag.dx = e.clientX - drag.x;
+    if (Math.abs(drag.dx) < 6 || reduced()) return;
+    if (!dragged) card.setPointerCapture(e.pointerId);
+    dragged = true;
+    scene.style.transform = `translateX(${drag.dx * 0.9}px) rotate(${Math.max(-12, Math.min(12, drag.dx / 24))}deg)`;
+  });
+  const drop = (e) => {
+    if (!drag) return;
+    const { dx, at } = drag,
+      flick = Math.abs(dx) / Math.max(1, e.timeStamp - at) > 0.6,
+      from = scene.style.transform,
+      to = index + (dx < 0 ? 1 : -1);
+    drag = null;
+    if (!dragged) return;
+    scene.style.transform = "";
+    if ((Math.abs(dx) > 90 || flick) && to >= 0) go(to);
+    else
+      scene.animate([{ transform: from }, { transform: "none" }], {
+        duration: 360,
+        easing: "cubic-bezier(.34,1.4,.5,1)",
+      });
+    // The click that ends a drag must not flip the card.
+    setTimeout(() => (dragged = false));
+  };
+  card.addEventListener("pointerup", drop);
+  card.addEventListener("pointercancel", drop);
   const keydown = (e) => {
     if (!body.isConnected || !dialog.open) return off();
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest?.("input,textarea,select,[contenteditable=true]"))
       return;
-    if (!list.length || index >= list.length) return;
-    if (e.key === "ArrowRight") go(index + 1);
+    const key = e.key.toLowerCase();
+    if (e.key === "?") keys.open = !keys.open;
+    else if (!list.length || index >= list.length) return;
+    else if (e.key === "ArrowRight") go(index + 1);
     else if (e.key === "ArrowLeft") go(index - 1);
     else if (e.key === " " && !e.target.closest?.("button,a,summary")) flip();
-    else if (flipped && /^[1-4]$/.test(e.key)) {
-      const value = Number(e.key);
-      if (spaced || value === 1 || value === 3) void grade(value);
-    } else if (flipped && e.key.toLowerCase() === "e") toggleExplain();
+    else if (flipped && (e.key === "1" || e.key === "2"))
+      void grade(e.key === "1" ? 1 : 3);
+    else if (flipped && key === "e") toggleExplain();
+    else if (!flipped && key === "h")
+      front.querySelector(".fc-hint-wrap .button:not([hidden])")?.click();
+    else if (e.key === "S") shuffle();
+    else if (key === "s" && canEdit()) void toggleFlag(list[index]);
+    else if (key === "r") setMode(mode);
     else return;
     e.preventDefault();
   };
   const off = () => {
     document.removeEventListener("keydown", keydown);
     dialog.removeEventListener("close", closed);
-    clearTimeout(flipTimer);
+    flipAnim?.cancel();
     clearTimeout(swapTimer);
   };
   const closed = () => {
@@ -6701,64 +6841,194 @@ function manualDeck() {
     ),
   );
 }
-function quizModal(a) {
-  const key = `folio-quiz-${state.user.id}-${a.id}`;
-  let answers;
-  try {
-    answers = JSON.parse(localStorage.getItem(key)) || [];
-  } catch {
-    answers = [];
-  }
-  const questions = a.content.questions;
-  const slots = questions.map((_, i) =>
-    Number.isInteger(answers[i]) ? answers[i] : null,
-  );
-  const body = el(
-    "form",
-    {
-      class: "stack",
-      onSubmit: (e) => {
-        e.preventDefault();
-        void action(async () => {
-          const result = await api("artifacts/" + a.id + "/attempt", {
-            method: "POST",
-            data: { answers: slots },
-          });
-          localStorage.removeItem(key);
-          quizResults(a, result, slots);
-          await refreshData();
-        });
-      },
-    },
+// --- Shared by the study screens (flashcards and quiz) ---------------------
+/** A small popover listing keyboard shortcuts, opened from a keyboard icon. */
+function shortcutList(rows) {
+  return el(
+    "details",
+    { class: "fc-more study-keys" },
     el(
-      "p",
-      { class: "notice" },
-      "Answer before checking. Scores use the generated answer key; verify disputed questions against the sources. Draft answers save in this browser.",
+      "summary",
+      {
+        class: "icon-button",
+        title: t("Shortcuts"),
+        "aria-label": t("Shortcuts"),
+      },
+      icon("keyboard"),
     ),
-    questions.map((q, i) =>
-      el(
-        "fieldset",
-        { class: "quiz-question", style: `--i:${Math.min(i, 8)}` },
-        el("legend", {}, `${i + 1}. ${q.question}`),
-        q.options.map((option, j) =>
-          el(
-            "label",
-            { class: "quiz-option" },
-            el("input", {
-              type: "radio",
-              name: "question-" + i,
-              value: j,
-              checked: slots[i] === j,
-              onChange: () => {
-                slots[i] = j;
-                localStorage.setItem(key, JSON.stringify(slots));
-              },
-            }),
-            option,
-          ),
-        ),
-      ),
+    el(
+      "dl",
+      { class: "fc-more-list" },
+      rows.map(([key, what]) => [
+        el("dt", {}, el("kbd", {}, key)),
+        el("dd", {}, t(what)),
+      ]),
     ),
+  );
+}
+/** A ring that fills to `percent` while its number counts up. */
+function scoreRing(percent, caption = "") {
+  const NS = "http://www.w3.org/2000/svg",
+    length = 2 * Math.PI * 52;
+  const circle = (name) => {
+    const node = document.createElementNS(NS, "circle");
+    for (const [key, value] of Object.entries({
+      class: name,
+      cx: 60,
+      cy: 60,
+      r: 52,
+    }))
+      node.setAttribute(key, String(value));
+    return node;
+  };
+  const svg = document.createElementNS(NS, "svg"),
+    fill = circle("score-ring-fill"),
+    number = el("strong", {}, "0%");
+  svg.setAttribute("viewBox", "0 0 120 120");
+  svg.setAttribute("aria-hidden", "true");
+  fill.setAttribute("stroke-dasharray", String(length));
+  svg.append(circle("score-ring-track"), fill);
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches,
+    began = performance.now();
+  const step = (now) => {
+    const p = still ? 1 : Math.min(1, Math.max(0, now - began) / 900),
+      eased = 1 - (1 - p) ** 3;
+    fill.setAttribute(
+      "stroke-dashoffset",
+      String(length * (1 - (percent / 100) * eased)),
+    );
+    number.textContent = Math.round(percent * eased) + "%";
+    if (p < 1) requestAnimationFrame(step);
+  };
+  step(began);
+  if (!still) requestAnimationFrame(step);
+  return el(
+    "div",
+    { class: "score-ring", role: "img", "aria-label": `${percent}% ${caption}` },
+    svg,
+    el(
+      "div",
+      { class: "score-ring-text" },
+      number,
+      caption ? el("span", {}, caption) : null,
+    ),
+  );
+}
+/**
+ * A citation replaces the open study dialog; closing that citation brings the
+ * session back. `capture` is called at the click and returns the function
+ * that reopens the session as it was. The citation button's own handler has
+ * already run when the click reaches here, so the citation dialog is
+ * identified now rather than from the order of close events: the study
+ * dialog's own close event arrives a frame later, possibly after the citation
+ * was closed too.
+ */
+function resumeAfterCitation(dialog, body, capture) {
+  body.addEventListener("click", (e) => {
+    if (!e.target.closest(".citation, .citation-source")) return;
+    if (body.isConnected || !dialog.open) return;
+    const reopen = capture(),
+      citation = dialog.querySelector(".dialog-body");
+    const restore = () => {
+      if (dialog.open) {
+        // Still showing the citation: this is the study dialog's late close
+        // event. Showing anything else: the citation was replaced, so stand down.
+        if (dialog.querySelector(".dialog-body") !== citation)
+          dialog.removeEventListener("close", restore);
+        return;
+      }
+      dialog.removeEventListener("close", restore);
+      if (citation.isConnected) reopen();
+    };
+    dialog.addEventListener("close", restore);
+  });
+}
+/** A shuffled list of 0..length-1 that is the same for the same seed. */
+function seededOrder(length, seed) {
+  let s = seed >>> 0;
+  const random = () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let x = Math.imul(s ^ (s >>> 15), 1 | s);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+  const order = Array.from({ length }, (_, i) => i);
+  for (let i = length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+// --- Quiz: practice and exam modes, in the notebooklm-quiz design ----------
+// The answer key never reaches the page. Practice mode checks one answer at a
+// time (`/check`); a finished whole quiz is saved as an attempt (`/attempt`).
+function quizModal(a, resume) {
+  const questions = a.content.questions,
+    letters = "ABCDEF",
+    everything = () => questions.map((_, i) => i);
+  const S = resume || {
+    view: "start", // start | quiz | results | review
+    mode: "practice",
+    shuffle: true,
+    attempt: 0,
+    order: everything(),
+    i: 0,
+    picked: {}, // question -> chosen option
+    verdicts: {}, // question -> what /check said
+    hints: new Set(), // questions whose hint was used
+    hintOpen: null,
+    flagged: new Set(),
+    seconds: 0,
+    result: null, // the saved attempt of a whole-quiz run
+    filter: "all",
+    confirming: null, // "submit" | "restart"
+  };
+  let busy = false,
+    dir = 1;
+  const body = el("div", { class: "qz study" }),
+    live = el("p", { class: "sr-only", "aria-live": "polite" }),
+    clock = el("span", { class: "qz-clock" }),
+    segments = el("div", { class: "qz-segments" }),
+    stage = el("div", { class: "qz-stage" });
+  const keys = shortcutList([
+    ["A–D / 1–4", "Choose an answer"],
+    ["Enter", "Next"],
+    ["← →", "Previous / next"],
+    ["H", "Hint"],
+    ["F", "Flag (exam)"],
+    ["E", "Why not the others?"],
+    ["R", "Restart"],
+  ]);
+  const time = () =>
+    `${Math.floor(S.seconds / 60)}:${String(S.seconds % 60).padStart(2, "0")}`;
+  const whole = () => S.order.length === questions.length;
+  const optionOrder = (q) =>
+    S.shuffle
+      ? seededOrder(questions[q].options.length, (q + 1) * 7919 + S.attempt)
+      : questions[q].options.map((_, i) => i);
+  /** One row per question of this run, from the saved attempt or the checks. */
+  const rows = () =>
+    S.order.map((q) => {
+      const r = S.result ? S.result.results[q] : S.verdicts[q],
+        selected = S.picked[q] ?? null;
+      return {
+        q,
+        selected,
+        answer: r.answer,
+        correct: selected === r.answer,
+        explanation: r.explanation,
+        explainWrong: r.explainWrong || {},
+        refs: r.refs || [],
+        topic: questions[q].topic,
+      };
+    });
+  const reviewRows = () =>
+    rows().filter(
+      (r) =>
+        S.filter === "all" ||
+        (S.filter === "incorrect" ? !r.correct : S.flagged.has(r.q)),
+    );
+  const viewerNote = () =>
     canEdit()
       ? null
       : el(
@@ -6767,93 +7037,697 @@ function quizModal(a) {
           t(
             "Your score is shown to you only; it isn't saved to the owner's notebook.",
           ),
-        ),
-    el("button", { class: "button primary", type: "submit" }, t("Submit quiz")),
-  );
-  modal(a.title, body);
-}
-function quizResults(a, result, answers) {
-  const missed = result.results.some((r) => !r.correct);
-  const makeCards = () =>
-    action(async () => {
-      const deck = await api("artifacts/" + a.id + "/flashcards", {
-        method: "POST",
-        data: result.id ? { attemptId: result.id } : { answers },
-      });
-      await openNotebook(state.activeNotebook);
-      await refreshData();
-      toast("Flashcards created from your missed answers.");
-      await openArtifact(deck.id);
+        );
+  const begin = (order) => {
+    Object.assign(S, {
+      view: "quiz",
+      order,
+      i: 0,
+      picked: {},
+      verdicts: {},
+      hints: new Set(),
+      hintOpen: null,
+      flagged: new Set(),
+      seconds: 0,
+      result: null,
+      filter: "all",
+      confirming: null,
     });
-  const body = el(
-    "div",
-    { class: "stack" },
-    el(
-      "div",
-      { class: "row between wrap" },
-      el("h2", {}, `${result.percentage}% — ${result.correct}/${result.total}`),
+    dir = 1;
+    show();
+  };
+  const finish = async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      if (whole())
+        S.result = await api("artifacts/" + a.id + "/attempt", {
+          method: "POST",
+          data: { answers: questions.map((_, q) => S.picked[q] ?? null) },
+        });
+      // A run of only the missed questions is graded, not saved as an attempt.
+      else
+        await Promise.all(
+          S.order
+            .filter((q) => !S.verdicts[q])
+            .map(async (q) => {
+              S.verdicts[q] = await api("artifacts/" + a.id + "/check", {
+                method: "POST",
+                data: { index: q, answer: S.picked[q] ?? 0 },
+              });
+            }),
+        );
+      S.view = "results";
+      S.confirming = null;
+      show();
+      if (whole()) void refreshData();
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      busy = false;
+    }
+  };
+  const submit = () => {
+    const open = S.order.filter((q) => S.picked[q] == null).length;
+    if (open && S.confirming !== "submit") {
+      S.confirming = "submit";
+      return paint();
+    }
+    void finish();
+  };
+  const pick = async (option) => {
+    const q = S.order[S.i];
+    if (S.view !== "quiz" || busy) return;
+    if (S.mode === "exam") {
+      S.picked[q] = option;
+      S.confirming = null;
+      return paint();
+    }
+    if (S.verdicts[q]) return;
+    busy = true;
+    try {
+      const verdict = await api("artifacts/" + a.id + "/check", {
+        method: "POST",
+        data: { index: q, answer: option },
+      });
+      S.picked[q] = option;
+      S.verdicts[q] = verdict;
+      live.textContent = verdict.correct
+        ? t("Correct")
+        : `${t("Incorrect")}. ${t("The correct answer is")} ${letters[optionOrder(q).indexOf(verdict.answer)]}`;
+      paint(true);
+      stage.querySelector(".qz-next")?.focus({ preventScroll: true });
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      busy = false;
+    }
+  };
+  const step = (by) => {
+    const review = S.view === "review";
+    if (S.view !== "quiz" && !review) return;
+    const count = review ? reviewRows().length : S.order.length,
+      to = S.i + by;
+    if (to < 0) return;
+    if (to >= count) {
+      if (review) {
+        S.view = "results";
+        return show();
+      }
+      if (S.mode === "exam") return submit();
+      return S.verdicts[S.order[S.i]] ? void finish() : undefined;
+    }
+    // Practice moves on only once the question is answered.
+    if (!review && S.mode === "practice" && by > 0 && !S.verdicts[S.order[S.i]])
+      return;
+    jump(to);
+  };
+  const jump = (to) => {
+    dir = to >= S.i ? 1 : -1;
+    S.i = to;
+    S.confirming = null;
+    S.hintOpen = null;
+    show();
+  };
+  const toggleHint = () => {
+    const q = S.order[S.i];
+    if (S.view !== "quiz" || S.mode !== "practice" || !questions[q].hint) return;
+    if (S.verdicts[q]) return;
+    S.hintOpen = S.hintOpen === q ? null : q;
+    S.hints.add(q);
+    paint();
+  };
+  const toggleFlag = () => {
+    const q = S.order[S.i];
+    if (S.view !== "quiz" || S.mode !== "exam") return;
+    S.flagged.has(q) ? S.flagged.delete(q) : S.flagged.add(q);
+    paint();
+  };
+  const restart = () => {
+    if (S.view === "start") return;
+    if (
+      S.view === "quiz" &&
+      Object.keys(S.picked).length &&
+      S.confirming !== "restart"
+    ) {
+      S.confirming = "restart";
+      return paint();
+    }
+    S.view = "start";
+    S.confirming = null;
+    show();
+  };
+  const paintSegments = () => {
+    const review = S.view === "review",
+      list = review ? reviewRows().map((r) => r.q) : S.order,
+      graded = review ? Object.fromEntries(rows().map((r) => [r.q, r])) : {},
+      answered = S.order.findIndex((q) => !S.verdicts[q]);
+    segments.hidden = S.view === "start" || S.view === "results";
+    segments.replaceChildren(
+      ...list.map((q, n) => {
+        const verdict = review
+            ? graded[q]
+            : S.mode === "practice"
+              ? S.verdicts[q]
+              : null,
+          state = verdict
+            ? verdict.correct
+              ? "is-good"
+              : "is-bad"
+            : S.picked[q] != null
+              ? "is-done"
+              : "",
+          // Practice reaches only answered questions and the next one.
+          open =
+            review ||
+            S.mode === "exam" ||
+            answered === -1 ||
+            n <= answered;
+        return el("button", {
+          type: "button",
+          class: `qz-seg ${state}${n === S.i ? " is-current" : ""}${S.flagged.has(q) ? " is-flagged" : ""}`,
+          "aria-label": `${t("Question")} ${n + 1}${S.flagged.has(q) ? ", " + t("flagged") : ""}`,
+          "aria-current": n === S.i ? "step" : null,
+          disabled: !open,
+          onClick: () => jump(n),
+        });
+      }),
+    );
+  };
+  const startView = () => {
+    const n = questions.length,
+      seg = (mode, label) =>
+        el(
+          "button",
+          {
+            type: "button",
+            role: "radio",
+            class: "qz-mode",
+            "aria-checked": String(S.mode === mode),
+            onClick: () => {
+              S.mode = mode;
+              show();
+            },
+          },
+          t(label),
+        );
+    return el(
+      "section",
+      { class: "qz-card qz-start" },
+      el(
+        "p",
+        { class: "qz-label" },
+        `${n} ${t(n === 1 ? "question" : "questions")} · ~${Math.max(1, Math.round(n * 0.75))} min`,
+      ),
       el(
         "div",
-        { class: "row wrap" },
-        missed
+        { class: "qz-modes", role: "radiogroup", "aria-label": t("Mode") },
+        seg("practice", "Practice"),
+        seg("exam", "Exam"),
+      ),
+      el(
+        "p",
+        { class: "muted" },
+        t(
+          S.mode === "practice"
+            ? "Feedback and an explanation after each answer."
+            : "No feedback or hints until you submit. Flag questions and jump between them.",
+        ),
+      ),
+      el(
+        "label",
+        { class: "qz-switch" },
+        el("input", {
+          type: "checkbox",
+          checked: S.shuffle,
+          onChange: (e) => (S.shuffle = e.target.checked),
+        }),
+        t("Shuffle options"),
+      ),
+      viewerNote(),
+      button("Start", () => begin(everything()), "primary qz-next"),
+    );
+  };
+  const questionView = (fresh = false) => {
+    const review = S.view === "review",
+      list = review ? reviewRows() : S.order.map((q) => ({ q })),
+      filters = review
+        ? el(
+            "div",
+            { class: "qz-filters", role: "group", "aria-label": t("Filter") },
+            [
+              ["all", "All"],
+              ["incorrect", "Incorrect"],
+              ["flagged", "Flagged"],
+            ].map(([value, label]) =>
+              el(
+                "button",
+                {
+                  type: "button",
+                  class: "qz-chip",
+                  "aria-pressed": String(S.filter === value),
+                  onClick: () => {
+                    S.filter = value;
+                    S.i = 0;
+                    show();
+                  },
+                },
+                t(label),
+              ),
+            ),
+          )
+        : null;
+    if (!list.length)
+      return el(
+        "article",
+        { class: "qz-card" },
+        filters,
+        el("p", { class: "muted" }, t("No questions match this filter.")),
+        el(
+          "footer",
+          { class: "qz-actions" },
+          button(
+            "Finish review",
+            () => {
+              S.view = "results";
+              show();
+            },
+            "primary qz-next",
+          ),
+        ),
+      );
+    const q = list[S.i].q,
+      item = questions[q],
+      order = optionOrder(q),
+      letter = (option) => letters[order.indexOf(option)],
+      verdict = review
+        ? list[S.i]
+        : S.mode === "practice"
+          ? S.verdicts[q]
+          : null,
+      chosen = S.picked[q] ?? null,
+      ok = verdict && chosen === verdict.answer,
+      last = S.i === list.length - 1;
+    const options = order.map((option, slot) => {
+      const right = verdict && option === verdict.answer,
+        wrong = verdict && option === chosen && !right,
+        node = el(
+          "button",
+          {
+            type: "button",
+            role: "radio",
+            class:
+              "qz-option" +
+              (right
+                ? " is-right"
+                : wrong
+                  ? " is-wrong"
+                  : verdict
+                    ? " is-dim"
+                    : option === chosen
+                      ? " is-picked"
+                      : ""),
+            "aria-checked": String(option === chosen),
+            "aria-disabled": verdict ? "true" : null,
+            onClick: () => void pick(option),
+          },
+          el(
+            "span",
+            { class: "qz-badge" },
+            right
+              ? icon("check")
+              : wrong
+                ? icon("close")
+                : !verdict && option === chosen
+                  ? icon("check")
+                  : letters[slot],
+          ),
+          el("span", { class: "qz-option-text" }, item.options[option]),
+          right || wrong
+            ? el(
+                "span",
+                { class: "qz-option-state" },
+                t(right ? "Correct answer" : "Your answer"),
+              )
+            : null,
+        );
+      node.style.setProperty("--i", String(slot));
+      return node;
+    });
+    const why = (option) =>
+      el(
+        "p",
+        { class: "qz-why" },
+        el("strong", {}, letter(option) + ". "),
+        verdict.explainWrong[option],
+      );
+    const others = verdict
+      ? order.filter(
+          (o) => o !== verdict.answer && o !== chosen && verdict.explainWrong?.[o],
+        )
+      : [];
+    const cited = verdict
+      ? a.citations.filter((c) => (verdict.refs || []).includes(c.id))
+      : [];
+    const feedback = verdict
+      ? el(
+          "section",
+          { class: "qz-feedback " + (ok ? "is-good" : "is-bad") },
+          el(
+            "p",
+            { class: "qz-verdict" },
+            icon(ok ? "check" : "close"),
+            t(ok ? "Correct" : chosen === null ? "Not answered" : "Not quite"),
+          ),
+          markdown(verdict.explanation, a.citations),
+          !ok && chosen !== null && verdict.explainWrong?.[chosen]
+            ? why(chosen)
+            : null,
+          others.length
+            ? el(
+                "details",
+                { class: "qz-others", open: review ? "" : null },
+                el("summary", {}, t("Why not the others?")),
+                others.map(why),
+              )
+            : null,
+          cited.length ? citationButtons(cited) : null,
+        )
+      : null;
+    const hinted = !review && S.hintOpen === q;
+    const previous = button("Previous", () => step(-1), "quiet");
+    previous.disabled = S.i === 0;
+    const forward = button(
+      review
+        ? last
+          ? "Finish review"
+          : "Next"
+        : S.mode === "exam"
+          ? last
+            ? "Submit"
+            : "Next"
+          : last
+            ? "See results"
+            : "Next",
+      () => step(1),
+      "primary qz-next",
+    );
+    forward.disabled = !review && S.mode === "practice" && !verdict;
+    const hintButton =
+      !review && S.mode === "practice" && item.hint
+        ? button(hinted ? "Hide hint" : "Hint", toggleHint, "quiet", "help")
+        : null;
+    if (hintButton) hintButton.disabled = Boolean(verdict);
+    const flagButton =
+      !review && S.mode === "exam"
+        ? el(
+            "button",
+            {
+              type: "button",
+              class: "button quiet qz-flag",
+              "aria-pressed": String(S.flagged.has(q)),
+              onClick: toggleFlag,
+            },
+            icon("flag"),
+            el("span", {}, t(S.flagged.has(q) ? "Flagged" : "Flag")),
+          )
+        : null;
+    const open = S.order.filter((x) => S.picked[x] == null).length;
+    const footer =
+      !review && S.confirming
+        ? el(
+            "footer",
+            { class: "qz-actions qz-confirm", role: "alert" },
+            el(
+              "p",
+              {},
+              S.confirming === "submit"
+                ? `${open} ${t(open === 1 ? "question is unanswered." : "questions are unanswered.")} ${t("Submit anyway?")}`
+                : t("Restart this quiz? Your answers will be cleared."),
+            ),
+            button("Keep going", () => {
+              S.confirming = null;
+              paint();
+            }),
+            S.confirming === "submit"
+              ? button("Submit", () => void finish(), "primary qz-next")
+              : button("Restart", restart, "primary qz-next"),
+          )
+        : el(
+            "footer",
+            { class: "qz-actions" },
+            previous,
+            hintButton,
+            flagButton,
+            !review && S.mode === "exam" && !last
+              ? button("Submit", submit, "quiet")
+              : null,
+            forward,
+          );
+    return el(
+      "article",
+      {
+        class: "qz-card" + (fresh ? " is-fresh" : "") + (review ? " is-review" : ""),
+        tabindex: -1,
+      },
+      filters,
+      el(
+        "p",
+        { class: "qz-label" },
+        `${t("Question")} ${S.i + 1} ${t("of")} ${list.length}`,
+        item.topic ? " · " + item.topic : "",
+      ),
+      el("h3", { class: "qz-stem" }, item.question),
+      hinted ? el("p", { class: "qz-hint" }, item.hint) : null,
+      el(
+        "div",
+        { class: "qz-options", role: "radiogroup", "aria-label": t("Answers") },
+        options,
+      ),
+      review && chosen === null
+        ? el("p", { class: "muted small" }, t("Not answered"))
+        : null,
+      feedback,
+      footer,
+    );
+  };
+  const resultsView = () => {
+    const all = rows(),
+      correct = all.filter((r) => r.correct).length,
+      skipped = all.filter((r) => r.selected === null).length,
+      missed = all.filter((r) => !r.correct),
+      percent = Math.round((correct / all.length) * 100);
+    const topics = new Map();
+    for (const r of all) {
+      const entry = topics.get(r.topic) || { name: r.topic, right: 0, total: 0 };
+      entry.total++;
+      if (r.correct) entry.right++;
+      topics.set(r.topic, entry);
+    }
+    // Weakest topics first: that is what to study next.
+    const ranked = [...topics.values()].sort(
+        (x, y) => x.right / x.total - y.right / y.total,
+      ),
+      weak = ranked.filter((x) => x.right < x.total).length;
+    const makeCards = () =>
+      action(async () => {
+        const deck = await api("artifacts/" + a.id + "/flashcards", {
+          method: "POST",
+          data: S.result.id
+            ? { attemptId: S.result.id }
+            : { answers: questions.map((_, q) => S.picked[q] ?? null) },
+        });
+        await openNotebook(state.activeNotebook);
+        await refreshData();
+        toast("Flashcards created from your missed answers.");
+        await openArtifact(deck.id);
+      });
+    return el(
+      "section",
+      { class: "qz-results" },
+      el(
+        "div",
+        { class: "qz-score" },
+        scoreRing(percent, `${correct} / ${all.length}`),
+        el(
+          "div",
+          { class: "stack" },
+          el(
+            "h3",
+            {},
+            t(
+              percent >= 90
+                ? "Strong."
+                : percent >= 70
+                  ? "Solid."
+                  : percent >= 50
+                    ? "Getting there."
+                    : "Needs another pass.",
+            ),
+            " ",
+            weak
+              ? weak === 1
+                ? t("1 topic to revisit.")
+                : `${weak} ${t("topics to revisit.")}`
+              : t("Nothing to revisit."),
+          ),
+          viewerNote(),
+        ),
+      ),
+      el(
+        "dl",
+        { class: "qz-stats" },
+        [
+          ["Correct", correct],
+          ["Incorrect", all.length - correct - skipped],
+          ["Skipped", skipped],
+          ["Hints used", S.hints.size],
+          ["Time", time()],
+        ].map(([label, value]) =>
+          el("div", {}, el("dt", {}, t(label)), el("dd", {}, value)),
+        ),
+      ),
+      el(
+        "section",
+        { class: "qz-topics" },
+        el("h4", {}, t("By topic")),
+        ranked.map((topic, n) => {
+          const bar = el("i");
+          bar.style.setProperty("--w", String(topic.right / topic.total));
+          bar.style.setProperty("--i", String(n));
+          return el(
+            "div",
+            { class: "qz-topic" },
+            el("span", {}, topic.name),
+            el("span", { class: "qz-topic-bar" }, bar),
+            el("span", { class: "qz-topic-count" }, `${topic.right}/${topic.total}`),
+          );
+        }),
+      ),
+      el(
+        "div",
+        { class: "row wrap qz-end" },
+        button(
+          "Review answers",
+          () => {
+            Object.assign(S, { view: "review", i: 0, filter: "all" });
+            dir = 1;
+            show();
+          },
+          "primary qz-next",
+        ),
+        missed.length
+          ? button(`${t("Retry missed")} (${missed.length})`, () => {
+              S.attempt++;
+              begin(missed.map((r) => r.q));
+            })
+          : null,
+        button("Retake all", () => begin(everything())),
+        button("Shuffle and retake", () => {
+          S.attempt++;
+          begin(seededOrder(questions.length, S.attempt));
+        }),
+        missed.length && whole()
           ? editOnly(
               button(
                 "Make flashcards from missed answers",
                 makeCards,
-                "small",
+                "",
                 "cards",
               ),
             )
           : null,
-        button("Retake quiz", () => quizModal(a), "small"),
       ),
-    ),
-    result.reviewTopics.length
-      ? el(
-          "div",
-          { class: "notice" },
-          el("strong", {}, t("Review topics")),
-          el("p", {}, result.reviewTopics.join(", ")),
-        )
-      : null,
-    result.results.map((r, i) =>
-      el(
-        "section",
-        {
-          class: "quiz-result " + (r.correct ? "correct" : "incorrect"),
-          style: `--i:${Math.min(i, 8)}`,
-        },
-        el(
-          "span",
-          { class: "badge" },
-          icon(r.correct ? "check" : "close"),
-          t(r.correct ? "Correct" : "Incorrect"),
-        ),
-        el("h3", {}, `${i + 1}. ${r.question}`),
-        el(
-          "p",
-          { class: "small muted" },
-          "Your answer: " +
-            (r.selected === null
-              ? t("No answer")
-              : a.content.questions[i].options[r.selected]),
-        ),
-        el(
-          "p",
-          {},
-          "Correct answer: " + a.content.questions[i].options[r.answer],
-        ),
-        markdown(r.explanation, a.citations),
-        citationButtons(a.citations.filter((c) => r.refs.includes(c.id))),
-      ),
-    ),
+    );
+  };
+  /** Redraw the current question in place (an answer, a hint, a flag). */
+  const paint = (fresh = false) => {
+    paintSegments();
+    stage.replaceChildren(questionView(fresh));
+  };
+  /** Draw the current view; a question slides in from the side it came from. */
+  const show = () => {
+    clock.hidden = S.view !== "quiz" || S.mode !== "exam";
+    clock.textContent = time();
+    paintSegments();
+    const question = S.view === "quiz" || S.view === "review",
+      view =
+        S.view === "start"
+          ? startView()
+          : S.view === "results"
+            ? resultsView()
+            : questionView();
+    if (question) view.classList.add(dir > 0 ? "qz-in-next" : "qz-in-prev");
+    stage.replaceChildren(view);
+    if (body.isConnected)
+      (question ? view : view.querySelector(".qz-next"))?.focus({
+        preventScroll: true,
+      });
+  };
+  body.append(
     el(
-      "p",
-      { class: "muted small" },
-      "Missed topics are review suggestions. They do not diagnose why you made an error.",
+      "div",
+      { class: "qz-bar" },
+      clock,
+      el(
+        "div",
+        { class: "qz-tools" },
+        keys,
+        iconButton("refresh", "Restart", restart),
+      ),
     ),
+    segments,
+    stage,
+    live,
   );
-  modal(a.title, body);
+  show();
+  const dialog = modal(a.title, body);
+  resumeAfterCitation(dialog, body, () => () => quizModal(a, S));
+  // Counts while a quiz is open; stops when this screen is replaced or closed.
+  const timer = setInterval(() => {
+    if (!body.isConnected || !dialog.open) return clearInterval(timer);
+    if (S.view !== "quiz") return;
+    S.seconds++;
+    clock.textContent = time();
+  }, 1000);
+  const keydown = (e) => {
+    if (!body.isConnected || !dialog.open) return off();
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.closest?.("input,textarea,select,[contenteditable=true]"))
+      return;
+    const key = e.key.toLowerCase(),
+      q = S.order[S.i];
+    if (e.key === "?") keys.open = !keys.open;
+    else if (S.view !== "quiz" && S.view !== "review") return;
+    else if (e.key === "ArrowRight") step(1);
+    else if (e.key === "ArrowLeft") step(-1);
+    else if (e.key === "Enter" && !e.target.closest?.("button,a,summary"))
+      step(1);
+    else if (key === "e") {
+      const more = stage.querySelector(".qz-others");
+      if (more) more.open = !more.open;
+    } else if (key === "r") restart();
+    else if (S.view !== "quiz") return;
+    else if (/^[a-d1-6]$/.test(key)) {
+      const slot = /\d/.test(key) ? Number(key) - 1 : letters.indexOf(key.toUpperCase()),
+        option = optionOrder(q)[slot];
+      if (option === undefined) return;
+      void pick(option);
+    } else if (key === "h") toggleHint();
+    else if (key === "f") toggleFlag();
+    else return;
+    e.preventDefault();
+  };
+  const off = () => {
+    document.removeEventListener("keydown", keydown);
+    dialog.removeEventListener("close", closed);
+    clearInterval(timer);
+  };
+  const closed = () => {
+    if (!body.isConnected || !dialog.open) off();
+  };
+  document.addEventListener("keydown", keydown);
+  dialog.addEventListener("close", closed);
 }
 function mindmapModal(a) {
   const collapsed = new Set();
@@ -7355,7 +8229,199 @@ function folioVersionPanel() {
     { class: "panel stack" },
     el("h2", {}, t("Folio version")),
     el("p", { class: "muted small" }, t("You are running Folio"), " ", value),
+    desktopUpdates ? updateSettings() : null,
   );
+}
+// --- Desktop updates ----------------------------------------------------------
+// Only the Folio desktop app has these controls (desktop/app-preload.cjs). It
+// checks GitHub for new releases. With automatic updates on, the newest one
+// installs when Folio quits; with them off, a "New update" button in the top
+// bar lists every release that can be installed.
+const updatesWaiting = () =>
+  Boolean(
+    state.updates?.supported &&
+    !state.updates.autoUpdate &&
+    state.updates.updates.length,
+  );
+function newUpdateButton(variant) {
+  if (!desktopUpdates) return null;
+  const count = state.updates?.updates.length || 0;
+  const b = button(
+    "New update",
+    openUpdates,
+    "update-button " + variant,
+    "download",
+  );
+  b.dataset.updateButton = "";
+  b.hidden = !updatesWaiting();
+  if (count > 1) b.append(el("span", { class: "update-count" }, String(count)));
+  b.setAttribute(
+    "aria-label",
+    count > 1 ? `${t("New update")} (${count})` : t("New update"),
+  );
+  return b;
+}
+// Refresh the update controls in place, so typing elsewhere is not lost.
+function showUpdates(next) {
+  if (!next) return;
+  state.updates = next;
+  for (const old of document.querySelectorAll("[data-update-button]"))
+    old.replaceWith(
+      newUpdateButton(old.classList.contains("gn-pill") ? "gn-pill" : "small"),
+    );
+  $("#update-settings")?.replaceWith(updateSettings());
+  const list = $("#update-list");
+  if (list) list.replaceWith(updateList());
+}
+function updateStatus(u) {
+  if (u.checking) return t("Checking for updates…");
+  if (u.installing) return `${t("Downloading")} Folio ${u.installing}…`;
+  if (u.error) return t(u.error);
+  if (u.ready && u.autoUpdate)
+    return `Folio ${u.ready} ${t("will install when you quit Folio.")}`;
+  const n = u.updates.length;
+  if (n === 1) return t("1 update can be installed.");
+  if (n > 1) return `${n} ${t("updates can be installed.")}`;
+  return u.checkedAt ? t("Folio is up to date.") : "";
+}
+function updateSettings() {
+  const u = state.updates;
+  if (!u) return el("div", { id: "update-settings" });
+  const hint = !u.supported
+    ? u.blocked === "development"
+      ? "Updates work in the installed app. This copy runs from the source code."
+      : "This copy of Folio does not update itself. Download new versions from GitHub."
+    : u.autoUpdate
+      ? "Folio downloads new versions by itself and installs them when you quit."
+      : "Folio still checks for new versions. When one is out, a New update button appears in the top bar and you choose when to install it.";
+  const answer = el(
+    "strong",
+    { class: "switch-answer" },
+    t(u.autoUpdate ? "Yes" : "No"),
+  );
+  const toggle = el("input", {
+    type: "checkbox",
+    role: "switch",
+    "data-testid": "auto-update",
+    checked: u.autoUpdate,
+    disabled: !u.supported,
+    onChange: (e) => {
+      const on = e.target.checked;
+      answer.textContent = t(on ? "Yes" : "No");
+      void action(async () => showUpdates(await desktopUpdates.setAuto(on)));
+    },
+  });
+  const status = u.supported ? updateStatus(u) : "";
+  return el(
+    "div",
+    { id: "update-settings", class: "stack" },
+    el(
+      "label",
+      { class: "update-switch" },
+      el(
+        "span",
+        { class: "grow" },
+        t("Update automatically"),
+        el("small", {}, t(hint)),
+      ),
+      answer,
+      toggle,
+    ),
+    u.supported
+      ? el(
+          "div",
+          { class: "row update-status" },
+          status
+            ? el("span", { class: "muted small grow" }, status)
+            : el("span", { class: "grow" }),
+          updatesWaiting()
+            ? button("View updates", openUpdates, "small", "download")
+            : null,
+          button(
+            "Check for updates",
+            () => action(async () => showUpdates(await desktopUpdates.check())),
+            "small",
+            "refresh",
+          ),
+        )
+      : null,
+  );
+}
+function updateList() {
+  const u = state.updates;
+  const n = u?.updates.length || 0;
+  if (!n)
+    return el(
+      "div",
+      { id: "update-list", class: "stack" },
+      el("p", {}, t("Folio is up to date. There is nothing to install.")),
+    );
+  return el(
+    "div",
+    { id: "update-list", class: "stack" },
+    el(
+      "p",
+      { class: "muted small" },
+      `${t("You are running Folio")} v${u.current}. `,
+      n === 1
+        ? t("1 update can be installed.")
+        : `${n} ${t("updates can be installed.")}`,
+    ),
+    u.updates.map((update, i) => {
+      const downloading = u.installing === update.version;
+      const install = button(
+        downloading ? "Downloading…" : "Install",
+        () =>
+          action(async () => {
+            await desktopUpdates.install(update.version);
+            toast("Installing the update. Folio will reopen.");
+          }),
+        i === 0 ? "primary small" : "small",
+        "download",
+      );
+      install.disabled = Boolean(u.installing);
+      return el(
+        "article",
+        { class: "update-card", "data-testid": "update-card" },
+        el(
+          "div",
+          { class: "row" },
+          el(
+            "div",
+            { class: "grow" },
+            el("h3", {}, update.title),
+            el(
+              "div",
+              { class: "row muted small update-meta" },
+              el("span", {}, "v" + update.version),
+              update.published
+                ? el("span", {}, formatDate(update.published))
+                : null,
+              i === 0 ? el("span", { class: "badge" }, t("Latest")) : null,
+            ),
+          ),
+          install,
+        ),
+        update.notes
+          ? el("div", { class: "update-notes" }, markdown(update.notes))
+          : el("p", { class: "muted small" }, t("No release notes.")),
+      );
+    }),
+    el(
+      "p",
+      { class: "muted small" },
+      t(
+        "Installing closes Folio, puts the new version in place and opens it again. Your notebooks and settings are kept.",
+      ),
+    ),
+  );
+}
+function openUpdates() {
+  modal("Updates", updateList(), true);
+}
+if (desktopUpdates) {
+  desktopUpdates.onChange(showUpdates);
+  void desktopUpdates.get().then(showUpdates, () => {});
 }
 async function libraryData(kind) {
   const all = await Promise.all(

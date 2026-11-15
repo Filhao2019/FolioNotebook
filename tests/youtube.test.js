@@ -573,3 +573,63 @@ test("a failing YouTube fetch does not fail the chat", async () => {
     },
   );
 });
+
+test("a video source is read whole on a later question, not a few sections", async () => {
+  const systems = [];
+  const providerFactory = (provider) => ({
+    ...fixtureProvider(provider),
+    async *streamChat(request) {
+      systems.push(request.system);
+      yield { text: "It covers a lot [1]." };
+      yield { usage: { input: 10, output: 5 } };
+    },
+  });
+  const tracks = [track("en")],
+    segments = Array.from({ length: 150 }, (_, i) => [
+      i * 20,
+      `Part ${i} walks through the topic called subject${i} with many extra words to fill the space of this passage nicely.`,
+    ]),
+    fake = fakeYouTube(playable(tracks), {
+      [transcriptUrl(tracks[0])]: transcriptXml(...segments),
+    });
+  await withApp(
+    4416,
+    {
+      providerFactory,
+      fetchWebSource: (url) =>
+        fetchYouTubeSource(youtubeVideoId(url), { fetch: fake }),
+    },
+    async (call) => {
+      const notebook = (await call("notebooks", "POST", { title: "Zoo" })).data
+        .id;
+      const connection = (
+        await call("connections", "POST", {
+          provider: "openai",
+          label: "Test fixture",
+          key: "fake-test-key-only",
+        })
+      ).data.id;
+      const video = (
+        await call("notebooks/" + notebook + "/sources", "POST", {
+          url: `https://youtu.be/${id}`,
+        })
+      ).data.id;
+      assert.equal(await waitReady(call, video), "ready");
+      // No link in the message: the video is only a selected source.
+      const answer = await call("notebooks/" + notebook + "/chat", "POST", {
+        connectionId: connection,
+        model: "fixture-text",
+        sourceIds: [video],
+        message: "What does the speaker say about subject75?",
+      });
+      assert.equal(answer.status, 200, answer.text);
+      for (let i = 0; i < 150; i++)
+        assert.ok(
+          systems[0].includes(`subject${i} `),
+          `the model never saw part ${i} of the transcript`,
+        );
+      // One whole transcript, not numbered pieces of it.
+      assert.doesNotMatch(systems[0], /\n\[2\] /);
+    },
+  );
+});
