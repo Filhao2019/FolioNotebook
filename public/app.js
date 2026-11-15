@@ -101,6 +101,8 @@ const pt = {
   "Search notebooks": "Buscar cadernos",
   Language: "Idioma",
   "Interface language": "Idioma da interface",
+  "Folio version": "Versão do Folio",
+  "You are running Folio": "Você está usando o Folio",
   "Explanation language": "Idioma das explicações",
   Theme: "Tema",
   Light: "Claro",
@@ -7302,6 +7304,7 @@ function settingsView() {
         "trash",
       ),
     ),
+    folioVersionPanel(),
     el(
       "section",
       { class: "panel stack" },
@@ -7317,6 +7320,18 @@ function settingsView() {
         "Planned: OCR, image, audio and video file ingestion, audio and video overviews, editable slide decks, advanced quiz formats, MFA, managed KMS and cloud file integrations. English and Brazilian Portuguese interface coverage is partial.",
       ),
     ),
+  );
+}
+function folioVersionPanel() {
+  const value = el("strong", { "data-testid": "folio-version" }, "…");
+  api("health")
+    .then((r) => (value.textContent = "v" + r.version))
+    .catch(() => (value.textContent = "unknown"));
+  return el(
+    "section",
+    { class: "panel stack" },
+    el("h2", {}, t("Folio version")),
+    el("p", { class: "muted small" }, t("You are running Folio"), " ", value),
   );
 }
 async function libraryData(kind) {

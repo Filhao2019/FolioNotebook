@@ -58,6 +58,9 @@ import { resolveActiveAi, rememberChoice } from "./ai-choice.js";
 import { buildGraph } from "./graph.js";
 
 const root = fileURLToPath(new URL("../public/", import.meta.url));
+const { version: appVersion } = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+);
 const idSchema = z.string().uuid();
 const short = z.string().trim().min(1).max(200);
 // Auto plus five levels; "low" from Folio 0.3 is read as Light.
@@ -667,7 +670,7 @@ export async function createApp(options = {}) {
     }
     limiter.take(`ip:${req.socket.remoteAddress}`, ipRequestLimit);
     if (path[0] === "health")
-      return json(res, { status: "ok", version: "0.5.0" });
+      return json(res, { status: "ok", version: appVersion });
     if (
       path[0] === "auth" &&
       ["register", "login", "guest"].includes(path[1]) &&
