@@ -17,7 +17,7 @@ import {
   readConfig,
   resolveRuntime,
 } from "./runtime.js";
-import { fetchUpdate } from "./update.js";
+import { fetchUpdate, installCommand } from "../Auto-Updater/update.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, "..");
@@ -202,20 +202,30 @@ ipcMain.handle("folio:set-server", async (event, value) => {
   return true;
 });
 
-// Windows: fetch a newer installer in the background, then run it silently
-// when Folio quits. The installer removes the old version itself.
-// shortcut: checks only at launch and leaves the installer in %TEMP%; add a
-// timer and cleanup if Folio stays open for days.
+// Fetch a newer release in the background, then install it when Folio
+// quits; installing removes the old version (see Auto-Updater/README.md).
+// shortcut: checks only at launch and leaves the download in the temp
+// folder; add a timer and cleanup if Folio stays open for days.
 function updateOnQuit() {
-  if (!app.isPackaged || process.platform !== "win32") return;
+  if (!app.isPackaged) return;
+  // Only the .deb install updates itself on Linux.
+  if (
+    process.platform === "linux" &&
+    (process.env.APPIMAGE || !existsSync("/usr/bin/dpkg"))
+  )
+    return;
   fetchUpdate(app.getVersion(), app.getPath("temp"))
-    .then((installer) => {
-      if (!installer) return;
+    .then((file) => {
+      if (!file) return;
+      const [command, args] = installCommand(
+        file,
+        process.platform,
+        process.execPath,
+      );
       app.once("will-quit", () =>
-        spawn(installer, ["/S", "--updated"], {
-          detached: true,
-          stdio: "ignore",
-        }).unref(),
+        spawn(command, args, { detached: true, stdio: "ignore" })
+          .on("error", () => {}) // e.g. no pkexec: stay on this version
+          .unref(),
       );
     })
     .catch(() => {}); // offline or GitHub unreachable: try again next launch

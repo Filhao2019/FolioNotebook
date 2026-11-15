@@ -50,6 +50,7 @@
     },
     "files": [
       "desktop/**",
+      "Auto-Updater/**",
       "server/**",
       "public/**",
       "package.json",
