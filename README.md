@@ -83,7 +83,7 @@ Backend JavaScript is checked using TypeScript's `checkJs`; ESLint checks both f
 
 ## License
 
-Folio is proprietary software, not open source. You may download and use the official Folio desktop app; copying, modifying, redistributing or building other products from this source code is not permitted. See [LICENSE](LICENSE).
+Folio is open source under the [MIT License](LICENSE). You are free to use, copy, modify and distribute it. Bundled third-party components, such as the fonts in `public/fonts`, keep their own licenses.
 
 ## Documentation
 
