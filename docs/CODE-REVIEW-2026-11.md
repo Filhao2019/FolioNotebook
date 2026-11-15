@@ -8,7 +8,11 @@ list of what would close the gap to Gemini Notebook (formerly NotebookLM).
 
 Everything marked **verified** below was executed on this machine against the real server from this
 commit. Everything marked **code-level** was found by reading the code and was not reproduced with a
-live provider.
+live provider. These are the original reviewer's results, not independent release-verification claims.
+
+Evidence labels: **verified** — B1, B3, B4, B7 and B10 (explicit reproductions below);
+**code-level** — B2, B5, B6, B8, B9, B11, B12 and B13. B14 is a documentation-maintenance
+observation about historical evidence.
 
 ## How this was reviewed
 
@@ -42,9 +46,9 @@ missing capability — not a broken feature.
 | B11 | P3       | UI         | chat renders raw Markdown while streaming                                                          |
 | B12 | P3       | API        | `PATCH /api/artifacts/:id` requires `title` even for a markdown-only edit                          |
 | B13 | P3       | Sessions   | 7-day session with no sliding renewal                                                              |
-| B14 | P3       | Docs       | the comparison doc says “all 22 backend tests passed”; the suite is 107                            |
+| B14 | P3       | Docs       | append current validation alongside the comparison doc's historical 22-test result                |
 
-## P1 — reproduced
+## P1 — reproduced or code-level (see evidence labels)
 
 ### B1. The app is unreachable through `localhost` or a non-default `PORT`
 
@@ -85,7 +89,9 @@ requirement in production, where a proxy terminates TLS.
 
 `server/providers.js:183-198` builds `AbortSignal.any([signal, AbortSignal.timeout(90000)])`. That
 signal stays attached while the body is read, so it aborts **generation**, not just connection
-setup. Every `streamChat` call without an explicit timeout therefore has a hard 90 s ceiling.
+setup. The HTTP adapters in this file therefore have a hard 90 s generation ceiling. The separate
+Codex and Claude CLI adapters use 120 s signals (`server/codex-provider.js:244-245` and
+`server/claude-provider.js:97-98`); the 90 s claim does not apply to those adapters.
 
 Where it bites: a 30-question quiz or a 50-card deck on a local Ollama model, `effort: ultra`, or a
 slow provider. The user sees “Cannot reach the selected provider” or “The provider interrupted
@@ -236,8 +242,9 @@ icon button with an `aria-label`).
 - **B13** `app.js:603-619`: sessions live 7 days from sign-in with no renewal; an active learner is
   logged out mid-notebook. Slide `expires` forward on authenticated requests, or refresh the cookie
   when it is within 24 h of expiry.
-- **B14** `docs/design/GEMINI-NOTEBOOK-COMPARISON.md:42` states “All 22 backend tests passed”. The
-  suite now has 107 tests. Worth updating so the evidence stays credible.
+- **B14** `docs/design/GEMINI-NOTEBOOK-COMPARISON.md:42` states “All 22 backend tests passed” for
+  its dated 2026-11-11 validation run. That historical result should be preserved. Append a dated
+  current validation result (107 tests in this review) when refreshing the comparison.
 
 Also small, not worth an ID: `verifyPassword` throws `RangeError` if a stored hash is malformed
 (imported or corrupted database) instead of returning `false`; the daily quota counts failed calls
