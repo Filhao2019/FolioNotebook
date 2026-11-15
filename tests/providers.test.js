@@ -1,6 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createProvider, sseEvents } from "../server/providers.js";
+test("SSE preserves events when CRLF and UTF-8 are split across packets", async () => {
+  const payload =
+    ': keepalive\r\nevent: message\r\ndata: {"text":"olá 🌱"}\r\n\r\ndata: {"done":true}\r\n\r\ndata: [DONE]\r\n\r\n';
+  const bytes = new TextEncoder().encode(payload);
+  // Every possible split, including between CR and LF and inside Unicode.
+  for (let split = 1; split < bytes.length; split++) {
+    const body = new ReadableStream({
+      start(c) {
+        c.enqueue(bytes.slice(0, split));
+        c.enqueue(bytes.slice(split));
+        c.close();
+      },
+    });
+    const events = [];
+    for await (const event of sseEvents(body)) events.push(event);
+    assert.deepEqual(
+      events,
+      [{ text: "olá 🌱" }, { done: true }],
+      `split ${split}`,
+    );
+  }
+});
 const stream = (events) =>
   new Response(
     events.map((event) => "data: " + JSON.stringify(event) + "\n\n").join(""),
@@ -157,9 +179,7 @@ async function sentBody(provider, request) {
       ]);
     },
   });
-  await adapter
-    .chat({ system: "s", messages: [], ...request })
-    .catch(() => {});
+  await adapter.chat({ system: "s", messages: [], ...request }).catch(() => {});
   return sent;
 }
 

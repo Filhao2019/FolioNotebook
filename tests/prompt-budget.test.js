@@ -1,12 +1,57 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { chunkText, groundedPrompt, retrieve } from "../server/retrieval.js";
+import {
+  chunkText,
+  groundedPrompt,
+  retrieve,
+  evidenceText,
+} from "../server/retrieval.js";
 import { catalog, createProvider, ollamaLibrary } from "../server/providers.js";
 import { generationPrompt } from "../server/learning.js";
 
 const para =
   "Cellular respiration converts glucose and oxygen into ATP, water and carbon dioxide in the mitochondria of the cell. ";
+test("duplicate evidence keeps each citation but sends the passage only once", () => {
+  const passage = para.repeat(8);
+  const excerpts = [1, 2, 3].map((id) => ({
+    id,
+    sourceId: String(id),
+    section: 1,
+    title: "Source " + id,
+    text: passage,
+  }));
+  const prompt = evidenceText(excerpts);
+  assert.ok(prompt.length < passage.length * 1.3);
+  for (const id of [1, 2, 3]) assert.ok(prompt.includes("[" + id + "]"));
+  assert.match(prompt, /Same passage as \[1\]/);
+});
+
+test("overview budgets cover each source and include document endings", async () => {
+  const parts = ["a", "b", "c"].flatMap((source_id) =>
+    Array.from({ length: 30 }, (_, ordinal) => ({
+      id: source_id + ordinal,
+      source_id,
+      ordinal,
+      title: source_id,
+      text: source_id + " section " + ordinal,
+    })),
+  );
+  const sources = ["a", "b", "c"];
+  const database = {
+    all: (sql) =>
+      sql.includes("status='ready'") ? sources.map((id) => ({ id })) : parts,
+  };
+  const evidence = await retrieve(database, "nb", sources, "", null, true, 8);
+  assert.equal(evidence.chunks.length, 8);
+  for (const source of sources) {
+    const sections = evidence.chunks
+      .filter((c) => c.sourceId === source)
+      .map((c) => c.section);
+    assert.ok(sections.includes(1));
+    assert.ok(sections.includes(30));
+  }
+});
 const sourceId = randomUUID();
 const chunks = chunkText(
   Array.from({ length: 120 }, (_, i) => `Section ${i}. ` + para.repeat(4)).join(
@@ -44,8 +89,15 @@ test("one chat turn stays within a small prompt budget", async () => {
   assert.ok(evidence.chunks.length <= 6);
   const system = groundedPrompt(evidence.chunks, {}, "strict", true);
   // ~4 characters per token: well under 2,000 tokens of instructions + evidence.
-  assert.ok(system.length / 4 < 2000, `system prompt ~${system.length / 4} tokens`);
-  assert.doesNotMatch(system, /[0-9a-f]{8}-[0-9a-f]{4}-/, "no internal IDs sent");
+  assert.ok(
+    system.length / 4 < 2000,
+    `system prompt ~${system.length / 4} tokens`,
+  );
+  assert.doesNotMatch(
+    system,
+    /[0-9a-f]{8}-[0-9a-f]{4}-/,
+    "no internal IDs sent",
+  );
   assert.match(system, /\[1\] Biology\.pdf p\.\d+/);
 });
 
@@ -111,7 +163,12 @@ test("a generation prompt carries only the rules for its own kind", () => {
 });
 
 test("a message without searchable terms still gets a small evidence sample", async () => {
-  const evidence = await retrieve(db, "nb", [sourceId], "can you explain this?");
+  const evidence = await retrieve(
+    db,
+    "nb",
+    [sourceId],
+    "can you explain this?",
+  );
   assert.ok(evidence.chunks.length > 0 && evidence.chunks.length <= 6);
 });
 

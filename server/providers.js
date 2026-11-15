@@ -148,7 +148,11 @@ export async function* sseEvents(body) {
       502,
       "Provider output exceeded the safety limit.",
     );
-    pending += decoder.decode(bytes, { stream: true }).replace(/\r\n/g, "\n");
+    // Normalize after joining: a network packet may end between CR and LF.
+    pending = (pending + decoder.decode(bytes, { stream: true })).replace(
+      /\r\n/g,
+      "\n",
+    );
     let boundary;
     while ((boundary = pending.indexOf("\n\n")) !== -1) {
       const frame = pending.slice(0, boundary);
@@ -270,7 +274,12 @@ export function createProvider(providerId, key, options = {}) {
         "Only local Ollama can download models.",
       );
       const result = await (
-        await request("/api/pull", { model, stream: false }, undefined, 3_600_000)
+        await request(
+          "/api/pull",
+          { model, stream: false },
+          undefined,
+          3_600_000,
+        )
       ).json();
       assert(
         result.status === "success",

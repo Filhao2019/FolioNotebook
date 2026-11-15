@@ -2,6 +2,8 @@
 
 ## Repeatable checks
 
+Release 0.7.0 validation (2026-11-15): 115 backend tests, 14 passing browser scenarios, one opt-in screenshot scenario skipped, checkJs and lint passed. Production dependency audit found no known advisories. See [RELEASE-0.7.0.md](RELEASE-0.7.0.md) for the fixes, measured prompt reductions, and limitations. These fixture results do not validate live paid providers or their billed token counts.
+
 Latest observed baseline (2026-11-11): 22 backend tests, 5 browser scenarios, checkJs and lint passed. `tests/codex-provider.test.js` exercises the local Codex bridge through a fake child process; `tests/slides.test.js` exercises slide schemas, owned connections, provider switching and saved content. `tests/e2e/notebook-workflows.spec.js` covers reports/slides and source/note/layout workflows. These are fixture checks, not live provider/account verification. See VALIDATION.md for startup recovery and visual-review evidence.
 
 `pnpm typecheck` checks backend JavaScript using TypeScript checkJs and Node types. `pnpm lint` checks application/test JS. `pnpm test` covers protocol adapters, partial/error streams, model discovery/authentication headers, chunking, citation bounds, costs, FSRS scheduling, deterministic scoring, upload validation, password hashing, encrypted-secret ownership and limits. Its integration scenario creates accounts, imports a real minimal PDF, verifies page extraction, chats with fixture inference, generates tools, reviews cards, grades a quiz, exports data, restarts the app, switches provider, checks isolation and deletes the source.

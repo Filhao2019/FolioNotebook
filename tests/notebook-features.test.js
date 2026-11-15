@@ -46,11 +46,11 @@ async function start(port, providerFactory = fixtureProvider) {
 }
 
 /** Uploads a text source and waits until it is ready. */
-async function readySource(user, notebook, name) {
+async function readySource(user, notebook, name, text = sourceText) {
   const id = (
     await user.call("notebooks/" + notebook + "/sources", "POST", {
       name,
-      base64: Buffer.from(sourceText).toString("base64"),
+      base64: Buffer.from(text).toString("base64"),
     })
   ).data.id;
   assert.ok(id);
@@ -320,12 +320,16 @@ test("Auto effort is resolved per task and generations reuse cached sources", as
     await ask("Why do cells need mitochondria?", "auto");
     await ask("What are mitochondria?", "ultra");
     await ask("What are mitochondria?", "low");
-    const quiz = await user.call("notebooks/" + notebook + "/generate", "POST", {
-      ...ai,
-      kind: "quiz",
-      difficulty: "advanced",
-      effort: "auto",
-    });
+    const quiz = await user.call(
+      "notebooks/" + notebook + "/generate",
+      "POST",
+      {
+        ...ai,
+        kind: "quiz",
+        difficulty: "advanced",
+        effort: "auto",
+      },
+    );
     assert.equal(quiz.status, 201, JSON.stringify(quiz.data));
     assert.deepEqual(requests, [
       { type: "chat", effort: "light" },
@@ -342,6 +346,163 @@ test("Auto effort is resolved per task and generations reuse cached sources", as
         })
       ).status,
       200,
+    );
+  } finally {
+    await stop();
+  }
+});
+
+test("unknown provider sign-in names return 404 instead of an internal error", async () => {
+  const { client, stop } = await start(4501);
+  try {
+    const user = client();
+    await user.call("auth/guest", "POST", {});
+    for (const name of ["constructor", "__proto__", "toString"])
+      assert.equal(
+        (await user.call("providers/" + name + "/signin", "POST", {})).status,
+        404,
+      );
+  } finally {
+    await stop();
+  }
+});
+
+test("chat keeps the full current question and removes stale citation numbers from history", async () => {
+  const requests = [];
+  const { client, stop } = await start(4502, (provider) => {
+    const base = fixtureProvider(provider);
+    return {
+      ...base,
+      streamChat(request) {
+        requests.push(request);
+        return base.streamChat(request);
+      },
+    };
+  });
+  try {
+    const { user, notebook, ai } = await studyNotebook(client);
+    for (const message of [
+      "What are mitochondria?",
+      "mitochondria ".repeat(570) + "Please finish with END_OF_QUESTION",
+    ]) {
+      const response = await fetch(
+        "http://127.0.0.1:4502/api/notebooks/" + notebook + "/chat",
+        {
+          method: "POST",
+          headers: {
+            Origin: "http://127.0.0.1:4502",
+            Cookie: user.cookie,
+            "X-CSRF-Token": user.csrf,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ...ai, message }),
+        },
+      );
+      assert.equal(response.status, 200);
+      assert.doesNotMatch(await response.text(), /"error":/);
+      assert.equal(
+        requests.at(-1).messages.at(-1).content.endsWith(message.slice(-35)),
+        true,
+        "current question must keep its ending",
+      );
+    }
+    const priorAnswer = requests
+      .at(-1)
+      .messages.find((m) => m.role === "assistant");
+    assert.ok(priorAnswer);
+    assert.doesNotMatch(priorAnswer.content, /\[\d+\]/);
+  } finally {
+    await stop();
+  }
+});
+
+test("small study tools use bounded evidence and topic labels send titles only", async () => {
+  const requests = [];
+  const { client, stop } = await start(4503, (provider) => {
+    const base = fixtureProvider(provider);
+    return {
+      ...base,
+      chat(request) {
+        requests.push(request);
+        return base.chat(request);
+      },
+    };
+  });
+  try {
+    const { user, notebook, ai } = await studyNotebook(client);
+    const long = await readySource(
+      user,
+      notebook,
+      "long-biology.txt",
+      "START_OF_SOURCE\n" +
+        Array.from(
+          { length: 180 },
+          (_, i) => "Section " + i + ". " + sourceText,
+        ).join("\n") +
+        "\nEND_OF_SOURCE",
+    );
+    const input = { ...ai, sourceIds: [long] };
+    const cards = await user.call(
+      "notebooks/" + notebook + "/generate",
+      "POST",
+      { ...input, kind: "flashcards", count: 3 },
+    );
+    assert.equal(cards.status, 201, JSON.stringify(cards.data));
+    const system = requests.at(-1).system;
+    assert.ok(
+      system.length < 13000,
+      "small deck prompt: " + system.length + " characters",
+    );
+    assert.match(system, /START_OF_SOURCE/);
+    assert.match(system, /END_OF_SOURCE/);
+    const labelled = await user.call(
+      "notebooks/" + notebook + "/generate",
+      "POST",
+      { ...input, kind: "labels" },
+    );
+    assert.equal(labelled.status, 201, JSON.stringify(labelled.data));
+    assert.doesNotMatch(requests.at(-1).system, /START_OF_SOURCE|SOURCES:/);
+    assert.match(requests.at(-1).messages[0].content, /long-biology.txt/);
+    assert.ok(requests.at(-1).maxTokens <= 2000);
+    const count = requests.length;
+    const invalid = await user.call(
+      "notebooks/" + notebook + "/generate",
+      "POST",
+      {
+        ...input,
+        sourceIds: ["00000000-0000-4000-8000-000000000000"],
+        kind: "labels",
+      },
+    );
+    assert.equal(invalid.status, 400);
+    assert.equal(requests.length, count);
+  } finally {
+    await stop();
+  }
+});
+
+test("malformed model output gives an actionable 502 and is never saved or retried", async () => {
+  let calls = 0;
+  const { client, stop } = await start(4504, (provider) => ({
+    ...fixtureProvider(provider),
+    async chat() {
+      calls++;
+      return { text: "Not JSON", usage: { input: 12, output: 3 } };
+    },
+  }));
+  try {
+    const { user, notebook, ai } = await studyNotebook(client);
+    const response = await user.call(
+      "notebooks/" + notebook + "/generate",
+      "POST",
+      { ...ai, kind: "flashcards" },
+    );
+    assert.equal(response.status, 502);
+    assert.match(response.data.error, /model.*JSON/i);
+    assert.equal(calls, 1);
+    assert.deepEqual(
+      (await user.call("notebooks/" + notebook)).data.artifacts,
+      [],
     );
   } finally {
     await stop();

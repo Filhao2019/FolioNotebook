@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AppError } from "./security.js";
 
 const refs = z.array(z.number().int().positive()).max(30).default([]);
 const text = z.string().min(1).max(12000);
@@ -350,8 +351,9 @@ export function weaknesses(db, { notebookId, user }) {
   return [...found.values()].sort((a, b) => b.count - a.count).slice(0, 12);
 }
 /** Labels of a notebook's weak concepts, for adaptive generation. */
-export const weakConcepts = (db, notebookId) =>
-  [...new Set(weaknesses(db, { notebookId }).map((x) => x.label))];
+export const weakConcepts = (db, notebookId) => [
+  ...new Set(weaknesses(db, { notebookId }).map((x) => x.label)),
+];
 export function scoreQuiz(questions, answers) {
   const results = questions.map((q, i) => ({
     question: q.question,
@@ -393,8 +395,7 @@ export function safeQuiz(content) {
 // The quiz and flashcard rules are the question-writing rules of the
 // notebooklm-quiz and notebooklm-flashcards skills, shortened for a prompt.
 const kindRules = {
-  quiz:
-    "Answer is a zero-based option index. Each question tests one concept, and its stem is a complete question a learner can answer before reading the options. Give exactly four options with one best answer; never use 'all of the above', 'none of the above' or 'A and B'. Build wrong options from real misconceptions, near-miss terms, off-by-one values or reversed cause and effect. Keep the options parallel in length and grammar, so the right one is not the longest or most detailed. Spread the right answer evenly over the four positions, never more than twice in a row at one position. Avoid negative stems. hint: point to the relevant idea without containing or paraphrasing the answer. explanation: one or two sentences on why the right answer is right, giving the mechanism. explainWrong: for every wrong option, keyed by its zero-based index, one short line on why it is wrong and what it actually describes. topic: at most three words. difficulty: 1 recall, 2 understanding or application, 3 analysis; mix them within the requested difficulty.",
+  quiz: "Answer is a zero-based option index. Each question tests one concept, and its stem is a complete question a learner can answer before reading the options. Give exactly four options with one best answer; never use 'all of the above', 'none of the above' or 'A and B'. Build wrong options from real misconceptions, near-miss terms, off-by-one values or reversed cause and effect. Keep the options parallel in length and grammar, so the right one is not the longest or most detailed. Spread the right answer evenly over the four positions, never more than twice in a row at one position. Avoid negative stems. hint: point to the relevant idea without containing or paraphrasing the answer. explanation: one or two sentences on why the right answer is right, giving the mechanism. explainWrong: for every wrong option, keyed by its zero-based index, one short line on why it is wrong and what it actually describes. topic: at most three words. difficulty: 1 recall, 2 understanding or application, 3 analysis; mix them within the requested difficulty.",
   flashcards:
     "One idea per card. The front is a question, or a sentence with one gap written as ____; never a topic label and never a yes/no question, and it makes clear what shape the answer takes. The back is one sentence or a list of at most five items; for a gap sentence it is the missing term only. Mix the card types: direct question, gap sentence, why or mechanism, comparison of two things, ordered steps, formula. hint: a nudge that does not contain the answer. tag: a topic of at most three words. Order the cards from foundational to dependent, mix the types, and never let one card give away the next.",
   mindmap: "Use one root, unique IDs, no cycles.",
@@ -469,18 +470,42 @@ export const askContext = (card, detail = null) => {
  */
 export const rewritePrompt = (card, instructions = "") =>
   `Rewrite this flashcard about the same concept in clearly different wording. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${instructions ? ` Extra instructions: ${JSON.stringify(instructions)}.` : ""} Return ONLY valid JSON in this exact structure: ${shapes.cardRewrite}. Cite using refs. Do not invent facts.`;
-export function parseStructured(raw, kind, maxCitation) {
-  const parsed = JSON.parse(
-    raw
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/, "")
-      .trim(),
-  );
-  const data = schemas[kind].parse(parsed);
+// Find the first complete object without treating braces inside JSON strings
+// as delimiters. Local models sometimes wrap an otherwise valid result in prose.
+function jsonObject(raw) {
+  const start = raw.indexOf("{");
+  let depth = 0,
+    quoted = false,
+    escaped = false;
+  for (let i = start; start >= 0 && i < raw.length; i++) {
+    const char = raw[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === "{") depth++;
+    else if (char === "}" && --depth === 0) return raw.slice(start, i + 1);
+  }
+  return raw.trim();
+}
+export function parseStructured(raw, kind, maxCitation, generated = true) {
+  let data;
+  try {
+    data = schemas[kind].parse(JSON.parse(jsonObject(raw)));
+  } catch {
+    throw new AppError(
+      generated ? 502 : 400,
+      generated
+        ? "The model did not return valid JSON in the required format. Retry or choose another model."
+        : "The study tool does not match the required format.",
+    );
+  }
   const validate = (value) => {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value.refs) && value.refs.some((x) => x > maxCitation))
-      throw new Error(
+      throw new AppError(
+        generated ? 502 : 400,
         "Generated reference is outside the supplied sources. Retry generation.",
       );
     Object.values(value).forEach((v) => {

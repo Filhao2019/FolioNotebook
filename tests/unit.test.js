@@ -15,6 +15,32 @@ import { validateUpload } from "../server/ingestion.js";
 import { pdfFixture } from "./fixtures.js";
 import { estimateCost } from "../server/cost.js";
 
+test("structured generation tolerates prose and fences without weakening validation", () => {
+  const value = {
+    title: 'Braces { and } and a "quote"',
+    cards: [{ front: "Q?", back: "A", refs: [1] }],
+  };
+  const json = JSON.stringify(value);
+  for (const wrapped of [
+    json,
+    `  \n\x60\x60\x60json\n${json}\n\x60\x60\x60  `,
+    `Here is the result:\n${json}\nHope this helps.`,
+  ]) {
+    assert.equal(parseStructured(wrapped, "flashcards", 1).title, value.title);
+  }
+  for (const invalid of [
+    "No JSON here",
+    '{"title":',
+    '{"title":"x","cards":[]}',
+    json.replace('"refs":[1]', '"refs":[99]'),
+  ]) {
+    assert.throws(
+      () => parseStructured(invalid, "flashcards", 1),
+      (error) => error.status === 502 && /model|reference/i.test(error.message),
+    );
+  }
+});
+
 test("cost estimates use discovered pricing and leave unknown prices unknown", () => {
   assert.equal(
     estimateCost(
@@ -140,7 +166,8 @@ test("video transcripts stay whole, and sections saved by older versions are joi
     body = (n) =>
       Array.from(
         { length: n },
-        (_, i) => `[${i}:00] Minute ${i} explains idea${i} at some length for the listener.`,
+        (_, i) =>
+          `[${i}:00] Minute ${i} explains idea${i} at some length for the listener.`,
       ).join("\n\n"),
     short = head + body(120),
     long = head + body(2500);
