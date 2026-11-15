@@ -5,6 +5,7 @@
 // friends, everyone points their app at the same shared Folio server
 // (Folio menu → Server settings…).
 import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from "electron";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -16,6 +17,7 @@ import {
   readConfig,
   resolveRuntime,
 } from "./runtime.js";
+import { fetchUpdate } from "./update.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, "..");
@@ -200,6 +202,25 @@ ipcMain.handle("folio:set-server", async (event, value) => {
   return true;
 });
 
+// Windows: fetch a newer installer in the background, then run it silently
+// when Folio quits. The installer removes the old version itself.
+// shortcut: checks only at launch and leaves the installer in %TEMP%; add a
+// timer and cleanup if Folio stays open for days.
+function updateOnQuit() {
+  if (!app.isPackaged || process.platform !== "win32") return;
+  fetchUpdate(app.getVersion(), app.getPath("temp"))
+    .then((installer) => {
+      if (!installer) return;
+      app.once("will-quit", () =>
+        spawn(installer, ["/S", "--updated"], {
+          detached: true,
+          stdio: "ignore",
+        }).unref(),
+      );
+    })
+    .catch(() => {}); // offline or GitHub unreachable: try again next launch
+}
+
 function buildMenu() {
   /** @type {Electron.MenuItemConstructorOptions[]} */
   const template = [
@@ -273,6 +294,7 @@ else {
     }
     buildMenu();
     createMainWindow();
+    updateOnQuit();
     app.on("activate", () => {
       if (!mainWindow) createMainWindow();
     });
