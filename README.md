@@ -33,7 +33,7 @@ The macOS and Linux builds are made by GitHub Actions for every release tag ([de
 ```powershell
 pnpm install --frozen-lockfile
 pnpm desktop                # run from this folder (uses ./data and ./.secrets)
-pnpm desktop:build          # Windows: dist/Folio Setup <version>.exe
+pnpm desktop:build          # Windows: dist/Folio-Setup-<version>.exe
 pnpm desktop:build:mac      # macOS: .dmg and .zip (run on a Mac)
 pnpm desktop:build:linux    # Linux: AppImage, .deb and .pacman
 ```

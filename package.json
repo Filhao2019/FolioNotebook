@@ -103,6 +103,7 @@
       }
     },
     "nsis": {
+      "artifactName": "Folio-Setup-${version}.${ext}",
       "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": "always",
