@@ -35,7 +35,12 @@ const cliLogins = {
 import { validateUpload, createIngestor } from "./ingestion.js";
 import { fetchWebSource } from "./web-source.js";
 import { youtubeUrls, youtubeVideoId } from "./youtube.js";
-import { retrieve, groundedPrompt, validateCitations } from "./retrieval.js";
+import {
+  retrieve,
+  groundedPrompt,
+  validateCitations,
+  joinTranscripts,
+} from "./retrieval.js";
 import {
   generationPrompt,
   parseStructured,
@@ -151,6 +156,7 @@ export async function createApp(options = {}) {
   const uploadDirectory = join(directory, "uploads");
   await mkdir(uploadDirectory, { recursive: true });
   const db = openDatabase(directory);
+  joinTranscripts(db);
   const secrets = secretStore(
     resolve(options.secretDirectory || process.env.SECRET_DIR || "./.secrets"),
     options.masterKey || process.env.MASTER_KEY,
@@ -1379,8 +1385,10 @@ export async function createApp(options = {}) {
         );
         const sourceIds = input.sourceIds;
         await retrieve(db, notebook.id, sourceIds, "", null, true);
+        // Whole video transcripts are always sent in full and are too long
+        // for an embedding request, so they are not embedded.
         const chunks = db.all(
-          `SELECT c.* FROM chunks c JOIN sources s ON s.id=c.source_id WHERE s.notebook_id=? AND s.id IN (${sourceIds.map(() => "?").join(",")})`,
+          `SELECT c.* FROM chunks c JOIN sources s ON s.id=c.source_id WHERE length(c.text)<=20000 AND s.notebook_id=? AND s.id IN (${sourceIds.map(() => "?").join(",")})`,
           notebook.id,
           ...sourceIds,
         );
@@ -1861,7 +1869,15 @@ export async function createApp(options = {}) {
               [...output.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])),
             ),
           ];
-          const citations = evidence.chunks.filter((c) => refs.includes(c.id));
+          // A whole video transcript is too long to save with every answer
+          // that cites it; the saved citation keeps its opening.
+          const citations = evidence.chunks
+            .filter((c) => refs.includes(c.id))
+            .map((c) =>
+              c.text.length > 3000
+                ? { ...c, text: c.text.slice(0, 3000) + " …" }
+                : c,
+            );
           const id = randomUUID();
           db.run(
             "INSERT INTO messages(id,notebook_id,role,text,citations,provider,model) VALUES(?,?,?,?,?,?,?)",

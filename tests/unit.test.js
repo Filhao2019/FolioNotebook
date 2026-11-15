@@ -131,3 +131,64 @@ test("limiter rejects excessive operations", () => {
   assert.throws(() => limiter.take("a", 1));
   limiter.take("b", 1);
 });
+
+test("video transcripts stay whole, and sections saved by older versions are joined", async () => {
+  const { joinTranscripts } = await import("../server/retrieval.js");
+  const { openDatabase } = await import("../server/db.js");
+  const head =
+      "# A talk\n\nSource: https://www.youtube.com/watch?v=jNQXAC9IVRw\nTranscript language: en\n\n## Transcript\n\n",
+    body = (n) =>
+      Array.from(
+        { length: n },
+        (_, i) => `[${i}:00] Minute ${i} explains idea${i} at some length for the listener.`,
+      ).join("\n\n"),
+    short = head + body(120),
+    long = head + body(2500);
+  assert.deepEqual(chunkText(short), [short]);
+  assert.ok(long.length > 120_000 && chunkText(long).length > 50);
+  // A leading character hides the transcript header, giving the old sections.
+  const sections = (text) =>
+    chunkText("x" + text).map((c, i) => (i ? c : c.slice(1)));
+  assert.ok(sections(short).length > 5);
+  const dir = await mkdtemp(join(tmpdir(), "folio-join-")),
+    db = openDatabase(dir);
+  try {
+    db.raw.exec("PRAGMA foreign_keys=OFF");
+    for (const [source, text] of [
+      ["short", short],
+      ["long", long],
+      ["notes", "# Notes\n\n" + body(120)],
+    ])
+      sections(text).forEach((part, i) =>
+        db.run(
+          "INSERT INTO chunks(id,source_id,ordinal,page,text) VALUES(?,?,?,NULL,?)",
+          `${source}-${i}`,
+          source,
+          i,
+          part,
+        ),
+      );
+    const count = (source) =>
+      db.get("SELECT count(*) AS n FROM chunks WHERE source_id=?", source).n;
+    const before = { long: count("long"), notes: count("notes") };
+    joinTranscripts(db);
+    joinTranscripts(db);
+    assert.equal(count("short"), 1);
+    assert.equal(
+      db.get("SELECT text FROM chunks WHERE source_id='short'").text,
+      short,
+    );
+    // The search index follows the joined section.
+    assert.equal(
+      db.get(
+        "SELECT count(*) AS n FROM chunk_search JOIN chunks c ON c.rowid=chunk_search.rowid WHERE chunk_search MATCH 'idea119' AND c.source_id='short'",
+      ).n,
+      1,
+    );
+    assert.equal(count("long"), before.long);
+    assert.equal(count("notes"), before.notes);
+  } finally {
+    db.close();
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+});

@@ -9,8 +9,18 @@ const stopwords = new Set(
     " o os as um uma de do da dos das em no na nos nas que para por com se é e ao à qual quais como quando onde porque"
   ).split(" "),
 );
+// A video transcript up to this size stays one section, so the model reads all
+// of it instead of a few keyword hits. Longer ones are cut into sections so
+// they still fit small context windows.
+const WHOLE_LIMIT = 120_000;
+const isTranscript = (text) =>
+  /^# .+\n+Source: https:\/\/www\.youtube\.com\/watch\?v=[\w-]{11}\n/.test(
+    text,
+  ) && text.includes("\n## Transcript\n");
 export function chunkText(text, size = 1400, overlap = 180) {
   const normalized = text.replace(/\r\n/g, "\n").replace(/\0/g, "").trim();
+  if (normalized.length <= WHOLE_LIMIT && isTranscript(normalized))
+    return [normalized];
   const chunks = [];
   let start = 0;
   while (start < normalized.length) {
@@ -25,6 +35,38 @@ export function chunkText(text, size = 1400, overlap = 180) {
     start = Math.max(start + 1, end - overlap);
   }
   return chunks;
+}
+/**
+ * Joins the sections of video transcripts indexed before version 0.6.0 into
+ * one, as `chunkText` now stores them. Runs at start; a no-op afterwards.
+ * @param {{ all: Function, run: Function, transaction: Function }} db
+ */
+export function joinTranscripts(db) {
+  for (const { id, source_id } of db.all(
+    "SELECT id,source_id FROM chunks WHERE ordinal=0 AND text LIKE '# %' AND source_id IN (SELECT source_id FROM chunks WHERE ordinal=1)",
+  )) {
+    const parts = db
+      .all("SELECT text FROM chunks WHERE source_id=? ORDER BY ordinal", source_id)
+      .map((c) => c.text);
+    if (!isTranscript(parts[0])) continue;
+    // Neighbouring sections repeat up to 180 characters; keep them once.
+    const whole = parts.reduce((text, next) => {
+      let shared = Math.min(200, text.length, next.length);
+      while (shared && !text.endsWith(next.slice(0, shared))) shared--;
+      return text + (shared ? "" : "\n") + next.slice(shared);
+    });
+    if (whole.length > WHOLE_LIMIT) continue;
+    // Deleting and inserting (not updating) keeps the search index in step.
+    db.transaction(() => {
+      db.run("DELETE FROM chunks WHERE source_id=?", source_id);
+      db.run(
+        "INSERT INTO chunks(id,source_id,ordinal,page,text) VALUES(?,?,0,NULL,?)",
+        id,
+        source_id,
+        whole,
+      );
+    });
+  }
 }
 export function cosine(a, b) {
   if (a.length !== b.length) return 0;
@@ -137,6 +179,14 @@ export async function retrieve(
         ).filter(Boolean),
       ),
     );
+  // A whole video transcript is always read in full, whatever the keywords.
+  const whole = all.filter(
+    (c) =>
+      c.ordinal === 0 &&
+      isTranscript(c.text) &&
+      !all.some((x) => x.source_id === c.source_id && x.ordinal > 0),
+  );
+  selected = [...whole, ...selected.filter((c) => !whole.includes(c))];
   return {
     chunks: selected.map((c, i) => ({
       id: i + 1,
