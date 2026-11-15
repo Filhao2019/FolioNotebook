@@ -28,7 +28,7 @@ Folio runs as a desktop app on **Windows, macOS and Linux** (Ubuntu/Debian, Omar
 | Omarchy / Arch    | `Folio-x.y.z-linux-x64.pacman` → `sudo pacman -U Folio-*.pacman` |
 | Any Linux         | `Folio-x.y.z-linux-x86_64.AppImage` → `chmod +x` and run |
 
-The macOS and Linux builds are made by GitHub Actions for every release tag ([desktop.yml](.github/workflows/desktop.yml)). They are not code-signed: on macOS right-click the app → **Open** the first time.
+The macOS and Linux builds are made by GitHub Actions for every release tag ([desktop.yml](.github/workflows/desktop.yml)). macOS builds are ad-hoc signed, but are not Developer ID signed or notarized, so Gatekeeper may block a fresh download. Ad-hoc signing verifies bundle integrity; it does not establish a trusted developer identity.
 
 ```powershell
 pnpm install --frozen-lockfile

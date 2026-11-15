@@ -1,7 +1,7 @@
 {
   "name": "folio-study",
   "productName": "Folio",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Folio — your sources, your AI, your way of learning.",
   "author": "Filhao2019",
   "license": "MIT",
@@ -63,29 +63,29 @@
       ],
       "icon": "desktop/icon.png"
     },
-    "mac":  {
-    "identity": "-",
-    "hardenedRuntime": false,
-    "target": [
-      {
-        "target": "dmg",
-        "arch": [
-          "arm64",
-          "x64"
-        ]
-      },
-      {
-        "target": "zip",
-        "arch": [
-          "arm64",
-          "x64"
-        ]
-      }
-    ],
-    "category": "public.app-category.education",
-    "icon": "desktop/icon.png",
-    "artifactName": "Folio-${version}-mac-${arch}.${ext}"
-  },
+    "mac": {
+      "identity": "-",
+      "hardenedRuntime": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.education",
+      "icon": "desktop/icon.png",
+      "artifactName": "Folio-${version}-mac-${arch}.${ext}"
+    },
     "linux": {
       "target": [
         "AppImage",
