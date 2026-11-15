@@ -342,6 +342,9 @@
     border-top: 1px solid var(--line);
     padding-top: 16px;
   }
+  .rail-version {
+    margin-top: 10px;
+  }
   .avatar {
     width: 33px;
     height: 33px;
