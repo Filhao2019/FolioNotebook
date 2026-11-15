@@ -705,6 +705,17 @@ async function action(fn) {
     return null;
   }
 }
+// The running version, shown on the main page (sign-in card and the rail of a
+// signed-in workspace). One request per page load, shared by every call site.
+let folioVersionRequest = null;
+function folioVersionTag(testId) {
+  const node = el("span", { "data-testid": testId }, "");
+  folioVersionRequest ??= api("health").then((r) => r.version);
+  folioVersionRequest
+    .then((version) => (node.textContent = "v" + version))
+    .catch(() => node.remove());
+  return node;
+}
 function download(name, data, type = "text/plain") {
   const url = URL.createObjectURL(new Blob([data], { type }));
   const link = el("a", { href: url, download: name });
@@ -1063,6 +1074,11 @@ function rail() {
           }),
         ),
       ),
+      el(
+        "div",
+        { class: "muted small rail-version" },
+        folioVersionTag("folio-version-rail"),
+      ),
     ),
   );
 }
@@ -1325,6 +1341,13 @@ function renderAuth(register = false) {
             t(
               "Data is saved on this server. Guest access depends on this browser session.",
             ),
+          ),
+          el(
+            "p",
+            { class: "muted small" },
+            t("You are running Folio"),
+            " ",
+            folioVersionTag("folio-version-auth"),
           ),
         ),
       ),
