@@ -28,15 +28,15 @@ All paths start with `/api`. JSON request/response bodies use UTF-8. Errors are 
 | `POST /sources/:id/retry`, `/cancel`              | Job controls                                                                     |
 | `DELETE /sources/:id`                             | Source/chunk/vector deletion and unlink raw file                                 |
 | `POST /notebooks/:id/chat`                        | SSE tutor stream using selected connection/model/sources                         |
-| `POST /notebooks/:id/generate`                    | Validated guide/flashcards/quiz/mindmap/table/slides; flashcards/quiz also take `count` (50/30), `difficulty` incl. `adaptive`, `cardFocus`, `explanations`, `spaced`, quiz `fromDeck` |
+| `POST /notebooks/:id/generate`                    | Validated guide/flashcards/quiz/mindmap/table/slides; flashcards/quiz also take `count` (50/30), `difficulty` incl. `adaptive`, `cardFocus`, `explanations`, `spaced`, quiz `fromDeck` and `questionTypes` (`choice`, `multi`, `blank`, `short`) |
 | `POST /notebooks/:id/embeddings`                  | Explicit secondary embedding connection/model and selected sources               |
 | `POST /notebooks/:id/notes`                       | `{title,markdown}`                                                               |
 | `POST /notebooks/:id/decks`                       | Manual deck `{title}`                                                            |
 | `GET/PATCH/DELETE /artifacts/:id`                 | Read, edit allowed fields, delete                                                |
 | `POST /artifacts/:id/cards`                       | Manual card `{front,back}`                                                       |
 | `POST /artifacts/:id/cards/import`                | Atomic `{cards:[{front,back}]}`, maximum 100                                     |
-| `POST /artifacts/:id/attempt`                     | `{answers:[optionIndexOrNull,...]}`; saved deterministic score and explanations  |
-| `POST /artifacts/:quizId/check`                   | `{index,answer}`; practice mode checks one answer: `{correct,answer,explanation,explainWrong,refs}`; nothing is saved |
+| `POST /artifacts/:id/attempt`                     | `{answers:[answerOrNull,...]}`, each answer an option index, a list of option indexes (multiple select) or text (fill in the blank, short answer); saved deterministic score and explanations  |
+| `POST /artifacts/:quizId/check`                   | `{index,answer}`; practice mode checks one answer: `{correct,answer,answers,accept,explanation,explainWrong,refs}`; nothing is saved |
 | `POST /artifacts/:quizId/flashcards`              | `{attemptId?,answers?}`; new "Missed: ..." deck from wrong answers, no AI call; `201 {id,count}` |
 | `PATCH/DELETE /cards/:id`                         | Edit front/back/hint/explanation/flag (front/back edits clear the cached detail), delete |
 | `POST /cards/:id/review`                          | `{rating:1..4}` (or legacy `{grade:0..5}`); saved FSRS schedule, review record and next-interval `preview` |

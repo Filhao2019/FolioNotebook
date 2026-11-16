@@ -178,6 +178,65 @@ const pt = {
   Easy: "Fácil",
   Next: "Próximo",
   Shuffle: "Embaralhar",
+  "Question types": "Tipos de pergunta",
+  "Multiple choice": "Múltipla escolha",
+  "Multiple select": "Seleção múltipla",
+  "Fill in the blank": "Preencher a lacuna",
+  "Short answer": "Resposta curta",
+  "Select all that apply.": "Selecione todas as corretas.",
+  "Type your answer": "Digite sua resposta",
+  "Check answer": "Verificar resposta",
+  "Accepted answer": "Resposta aceita",
+  "Correct, chosen": "Correta, escolhida",
+  "Answer length": "Tamanho da resposta",
+  Short: "Curta",
+  Default: "Padrão",
+  Long: "Longa",
+  Glossary: "Glossário",
+  "Comparison document": "Documento de comparação",
+  "Briefing document, FAQ, timeline, glossary":
+    "Síntese, perguntas frequentes, linha do tempo, glossário",
+  "Learning overview": "Visão geral de aprendizagem",
+  "Study in four stages": "Estude em quatro etapas",
+  "stages ready": "etapas prontas",
+  Introduction: "Introdução",
+  "Visual explanation": "Explicação visual",
+  Assessment: "Avaliação",
+  "Read the study guide first.": "Leia primeiro o guia de estudo.",
+  "See the big picture on one page.": "Veja o panorama em uma página.",
+  "Recall the key ideas with flashcards.":
+    "Relembre as ideias principais com flashcards.",
+  "Test yourself and review your mistakes.": "Teste-se e revise seus erros.",
+  Open: "Abrir",
+  Create: "Criar",
+  "Study prompts": "Prompts de estudo",
+  "Pick a prompt to place it in the chat box. Edit it before you send.":
+    "Escolha um prompt para colocá-lo na caixa do chat. Edite antes de enviar.",
+  "Complete study guide": "Guia de estudo completo",
+  "Every section and definition, with a topic checklist.":
+    "Cada seção e definição, com uma lista de tópicos.",
+  "One concept at a time; you answer before it corrects.":
+    "Um conceito por vez; você responde antes da correção.",
+  "Tricky multiple choice, answers only at the end.":
+    "Múltipla escolha difícil, respostas só no final.",
+  "A table of look-alike ideas, then questions on them.":
+    "Uma tabela de ideias parecidas e perguntas sobre elas.",
+  "Tests every topic and sorts your mistakes by kind.":
+    "Testa todos os tópicos e classifica seus erros por tipo.",
+  "Personal tutor": "Tutor pessoal",
+  "Hard practice exam": "Simulado difícil",
+  "Confusing concepts": "Conceitos confusos",
+  "Final readiness check": "Verificação final de preparo",
+  "Using only my selected sources, write a complete, well-organized study guide. Cover every major section, definition, distinction, process, formula and example that an exam could ask about. Keep the sources' exact technical terms, cite the sources, and finish with a checklist of the topics covered.":
+    "Usando apenas as fontes selecionadas, escreva um guia de estudo completo e bem organizado. Cubra cada seção, definição, distinção, processo, fórmula e exemplo que uma prova possa cobrar. Mantenha os termos técnicos exatos das fontes, cite as fontes e termine com uma lista dos tópicos cobertos.",
+  "Act as an expert tutor preparing me for an exam. Teach the selected material one concept at a time, from clear explanations to harder applications. Ask me a question after each concept and wait for my attempt before you correct it. Explain my mistakes with citations.":
+    "Aja como um tutor especialista me preparando para uma prova. Ensine o material selecionado um conceito por vez, de explicações claras a aplicações mais difíceis. Faça uma pergunta após cada conceito e espere minha tentativa antes de corrigir. Explique meus erros com citações.",
+  "Give me a challenging multiple-choice practice exam on my selected sources: definitions, comparisons, applications and common misconceptions, with plausible wrong options. Ask the questions without revealing the answers. When I finish, give the answers, explanations and the topics I should review.":
+    "Faça um simulado difícil de múltipla escolha sobre as fontes selecionadas: definições, comparações, aplicações e equívocos comuns, com alternativas erradas plausíveis. Faça as perguntas sem revelar as respostas. Quando eu terminar, dê as respostas, as explicações e os tópicos que devo revisar.",
+  "Find the concepts in the selected sources that students most often confuse: similar definitions, competing theories, close dates, or formulas with similar uses. Make a comparison table of the exact differences, then give me practice questions that tell them apart.":
+    "Encontre nas fontes selecionadas os conceitos que os estudantes mais confundem: definições parecidas, teorias concorrentes, datas próximas ou fórmulas de uso semelhante. Faça uma tabela comparando as diferenças exatas e depois me dê perguntas para distingui-los.",
+  "Check whether I know this material well enough for an exam. Test me on a balanced selection of topics from all selected sources, one question at a time. After my answers, sort my mistakes into knowledge gaps, misunderstandings, application errors and careless errors, and recommend topics and source sections to review.":
+    "Verifique se eu sei este material bem o suficiente para uma prova. Teste-me com uma seleção equilibrada de tópicos de todas as fontes selecionadas, uma pergunta por vez. Depois das respostas, classifique meus erros em lacunas de conhecimento, mal-entendidos, erros de aplicação e descuidos, e recomende tópicos e trechos das fontes para revisar.",
   "Edit card": "Editar cartão",
   "Add card": "Adicionar cartão",
   Front: "Frente",
@@ -244,8 +303,8 @@ const pt = {
   "Load a sample source": "Carregar uma fonte de exemplo",
   "Import notes, a chapter, or a worksheet to begin.":
     "Importe notas, um capítulo ou uma atividade para começar.",
-  "Add PDF, DOCX, TXT, Markdown or CSV files (10 MB each).":
-    "Adicione PDF, DOCX, TXT, Markdown ou CSV (10 MB cada).",
+  "Add PDF, Word, PowerPoint, EPUB, TXT, Markdown or CSV files (10 MB each).":
+    "Adicione PDF, Word, PowerPoint, EPUB, TXT, Markdown ou CSV (10 MB cada).",
   "Your material is sent only to the provider you select.":
     "Seu material é enviado apenas ao provedor selecionado.",
   "Markdown content": "Conteúdo Markdown",
@@ -2693,6 +2752,8 @@ function panelToggle(panel) {
 const formatLabels = {
   pdf: "PDF",
   docx: "DOC",
+  pptx: "PPT",
+  epub: "EPUB",
   md: "MD",
   txt: "TXT",
   csv: "CSV",
@@ -3639,6 +3700,7 @@ function conversationView() {
         { class: "row tight" },
         editOnly(iconButton("sliders", "Configure chat", notebookSettings)),
         menuButton("Chat options", () => [
+          ["Study prompts", "wand", () => promptsModal(fill)],
           canEdit() && ["Teaching style", "settings", notebookSettings],
           w.messages.length
             ? [
@@ -3784,6 +3846,7 @@ function feedbackButtons(m) {
   return buttons;
 }
 const studioTools = [
+  ["path", "Learning overview", "list"],
   ["audio", "Audio overview", "audio"],
   ["slides", "Slide deck", "slides"],
   ["mindmap", "Mind map", "map"],
@@ -3799,14 +3862,142 @@ const studioDescriptions = {
   audio: "Listen to a two-host conversation",
   slides: "Present the key ideas",
   mindmap: "Connect the dots",
-  reports: "Briefing document, FAQ, timeline",
+  reports: "Briefing document, FAQ, timeline, glossary",
+  path: "Study in four stages",
   flashcards: "Make it memorable",
   quiz: "Put yourself to the test",
   table: "See it side by side",
   guide: "The ideas that matter",
 };
 const runTool = (kind) =>
-  kind === "reports" ? reportsModal() : generateModal(kind);
+  kind === "reports"
+    ? reportsModal()
+    : kind === "path"
+      ? learningPathModal()
+      : generateModal(kind);
+// One resource per stage, in the order to study them.
+const learningPath = [
+  ["guide", "Introduction", "Read the study guide first."],
+  ["infographic", "Visual explanation", "See the big picture on one page."],
+  ["flashcards", "Practice", "Recall the key ideas with flashcards."],
+  ["quiz", "Assessment", "Test yourself and review your mistakes."],
+];
+function learningPathModal() {
+  const made = (kind) => state.workspace.artifacts.find((a) => a.kind === kind),
+    ready = learningPath.filter(([kind]) => made(kind)).length;
+  modal(
+    "Learning overview",
+    el(
+      "div",
+      { class: "stack" },
+      el(
+        "p",
+        { class: "muted" },
+        `${ready} ${t("of")} ${learningPath.length} ${t("stages ready")}`,
+      ),
+      el(
+        "div",
+        { class: "progress-bar", "aria-hidden": "true" },
+        el("span", {
+          style: `width:${(ready / learningPath.length) * 100}%`,
+        }),
+      ),
+      el(
+        "ol",
+        { class: "path-list" },
+        learningPath.map(([kind, stage, hint], i) => {
+          const a = made(kind);
+          return el(
+            "li",
+            { class: "path-step" + (a ? " is-ready" : "") },
+            el(
+              "span",
+              { class: "path-number", "aria-hidden": "true" },
+              a ? icon("check") : i + 1,
+            ),
+            el(
+              "div",
+              { class: "path-text" },
+              el("strong", {}, t(stage)),
+              el("span", { class: "muted small" }, a ? a.title : t(hint)),
+            ),
+            a
+              ? button(
+                  "Open",
+                  () => {
+                    $("#dialog").close();
+                    void openArtifact(a.id);
+                  },
+                  "small",
+                )
+              : button("Create", () => generateModal(kind), "small primary"),
+          );
+        }),
+      ),
+    ),
+  );
+}
+// Ready-made chat prompts for common study goals.
+const studyPrompts = [
+  [
+    "Complete study guide",
+    "Every section and definition, with a topic checklist.",
+    "Using only my selected sources, write a complete, well-organized study guide. Cover every major section, definition, distinction, process, formula and example that an exam could ask about. Keep the sources' exact technical terms, cite the sources, and finish with a checklist of the topics covered.",
+  ],
+  [
+    "Personal tutor",
+    "One concept at a time; you answer before it corrects.",
+    "Act as an expert tutor preparing me for an exam. Teach the selected material one concept at a time, from clear explanations to harder applications. Ask me a question after each concept and wait for my attempt before you correct it. Explain my mistakes with citations.",
+  ],
+  [
+    "Hard practice exam",
+    "Tricky multiple choice, answers only at the end.",
+    "Give me a challenging multiple-choice practice exam on my selected sources: definitions, comparisons, applications and common misconceptions, with plausible wrong options. Ask the questions without revealing the answers. When I finish, give the answers, explanations and the topics I should review.",
+  ],
+  [
+    "Confusing concepts",
+    "A table of look-alike ideas, then questions on them.",
+    "Find the concepts in the selected sources that students most often confuse: similar definitions, competing theories, close dates, or formulas with similar uses. Make a comparison table of the exact differences, then give me practice questions that tell them apart.",
+  ],
+  [
+    "Final readiness check",
+    "Tests every topic and sorts your mistakes by kind.",
+    "Check whether I know this material well enough for an exam. Test me on a balanced selection of topics from all selected sources, one question at a time. After my answers, sort my mistakes into knowledge gaps, misunderstandings, application errors and careless errors, and recommend topics and source sections to review.",
+  ],
+];
+function promptsModal(fill) {
+  modal(
+    "Study prompts",
+    el(
+      "div",
+      { class: "stack" },
+      el(
+        "p",
+        { class: "muted" },
+        t("Pick a prompt to place it in the chat box. Edit it before you send."),
+      ),
+      el(
+        "div",
+        { class: "prompt-list" },
+        studyPrompts.map(([title, summary, text]) =>
+          el(
+            "button",
+            {
+              type: "button",
+              class: "prompt-card",
+              onClick: () => {
+                $("#dialog").close();
+                fill(text);
+              },
+            },
+            el("strong", {}, t(title)),
+            el("span", {}, t(summary)),
+          ),
+        ),
+      ),
+    ),
+  );
+}
 const toolDefinitions = [
   ["guide", "Study guide", "book"],
   ["flashcards", "Flashcards", "cards"],
@@ -4043,9 +4234,7 @@ function audioModal(a) {
     field("Sam", voiceB),
   );
   const lang =
-    state.workspace?.notebook.settings.language === "Português (Brasil)"
-      ? "pt"
-      : "en";
+    languageCodes[state.workspace?.notebook.settings.language] || "en";
   const fillVoices = () => {
     if (!synth) return;
     const voices = synth.getVoices();
@@ -4310,7 +4499,7 @@ function uploadModal() {
   const files = el("input", {
       type: "file",
       multiple: true,
-      accept: ".pdf,.docx,.txt,.md,.csv",
+      accept: ".pdf,.docx,.pptx,.epub,.txt,.md,.csv",
       "aria-label": t("Choose files"),
     }),
     status = el("div"),
@@ -4369,7 +4558,7 @@ function uploadModal() {
       el(
         "p",
         { class: "muted" },
-        t("Add PDF, DOCX, TXT, Markdown or CSV files (10 MB each)."),
+        t("Add PDF, Word, PowerPoint, EPUB, TXT, Markdown or CSV files (10 MB each)."),
       ),
       files,
       status,
@@ -4678,6 +4867,10 @@ const reportFormats = {
   FAQ: "Create a frequently asked questions document. Use a question heading and a clear answer with citations for each topic.",
   Timeline:
     "Create a chronological timeline using only dates and events explicitly supported by the sources. Say when dates are not provided; do not invent dates or ordering.",
+  Glossary:
+    "Create a glossary of every key term in the sources, in alphabetical order. Give each term a one- or two-sentence definition in the sources' own wording, with a citation.",
+  "Comparison document":
+    "Create a comparison document for the concepts in the sources that are easy to confuse. Use Markdown tables that set out the exact differences, then explain each pair in one short paragraph with citations.",
 };
 function reportsModal() {
   modal(
@@ -4701,6 +4894,22 @@ function reportsModal() {
     ),
   );
 }
+const quizTypes = [
+  ["choice", "Multiple choice"],
+  ["multi", "Multiple select"],
+  ["blank", "Fill in the blank"],
+  ["short", "Short answer"],
+];
+// Explanation languages, with the speech language of each.
+const languageCodes = {
+  English: "en",
+  "Português (Brasil)": "pt",
+  Español: "es",
+  Français: "fr",
+  Deutsch: "de",
+  Italiano: "it",
+};
+const outputLanguages = Object.keys(languageCodes);
 /** A row of single-choice chips; `set` changes the choice without calling back. */
 function chipGroup(label, choices, value, onPick) {
   const group = el("div", {
@@ -4793,6 +5002,33 @@ function generateModal(kind, options = {}) {
       ["definitions", "concepts", "qa", "exam", "mixed"],
       "mixed",
     );
+  const types = new Set(
+    (Array.isArray(saved.questionTypes) ? saved.questionTypes : []).filter(
+      (id) => quizTypes.some(([known]) => known === id),
+    ),
+  );
+  if (!types.size) types.add("choice");
+  const typeChips = el(
+    "div",
+    { class: "chip-row", role: "group", "aria-label": t("Question types") },
+    quizTypes.map(([id, name]) =>
+      el(
+        "button",
+        {
+          type: "button",
+          class: "choice-chip",
+          "aria-pressed": String(types.has(id)),
+          onClick: (e) => {
+            // At least one type stays chosen.
+            if (types.has(id) && types.size === 1) return;
+            types.has(id) ? types.delete(id) : types.add(id);
+            e.currentTarget.setAttribute("aria-pressed", String(types.has(id)));
+          },
+        },
+        t(name),
+      ),
+    ),
+  );
   const count = el("input", {
       type: "number",
       min: 1,
@@ -4809,7 +5045,7 @@ function generateModal(kind, options = {}) {
     language = el(
       "select",
       {},
-      ["English", "Português (Brasil)"].map((v) =>
+      outputLanguages.map((v) =>
         el(
           "option",
           {
@@ -5044,6 +5280,7 @@ function generateModal(kind, options = {}) {
                 count: total,
                 difficulty: level,
                 cardFocus,
+                questionTypes: [...types],
                 spaced: spaced.querySelector("input").checked,
                 explanations: explanations.querySelector("input").checked,
               }),
@@ -5058,6 +5295,7 @@ function generateModal(kind, options = {}) {
               count: total,
               difficulty: study ? level : difficulty.value,
               ...(study ? { cardFocus } : {}),
+              ...(kind === "quiz" ? { questionTypes: [...types] } : {}),
               ...(kind === "flashcards"
                 ? {
                     spaced: spaced.querySelector("input").checked,
@@ -5116,6 +5354,7 @@ function generateModal(kind, options = {}) {
           ),
           genGroup("Difficulty", levelChips, levelHint),
           genGroup("Focus", focusChips),
+          kind === "quiz" ? genGroup("Question types", typeChips) : null,
           kind === "flashcards"
             ? el("div", { class: "gen-switches" }, spaced, explanations)
             : null,
@@ -6992,7 +7231,9 @@ function quizModal(a, resume) {
         q,
         selected,
         answer: r.answer,
-        correct: selected === r.answer,
+        answers: r.answers || [],
+        accept: r.accept || [],
+        correct: selected !== null && Boolean(r.correct),
         explanation: r.explanation,
         explainWrong: r.explainWrong || {},
         refs: r.refs || [],
@@ -7072,26 +7313,33 @@ function quizModal(a, resume) {
     }
     void finish();
   };
-  const pick = async (option) => {
+  const typed = (q) => ["blank", "short"].includes(questions[q].type);
+  /** Practice: send one answer (an option, several options or text) for checking. */
+  const grade = async (answer) => {
     const q = S.order[S.i];
-    if (S.view !== "quiz" || busy) return;
-    if (S.mode === "exam") {
-      S.picked[q] = option;
-      S.confirming = null;
-      return paint();
-    }
-    if (S.verdicts[q]) return;
+    if (S.view !== "quiz" || busy || S.verdicts[q] || answer == null) return;
     busy = true;
     try {
       const verdict = await api("artifacts/" + a.id + "/check", {
         method: "POST",
-        data: { index: q, answer: option },
+        data: { index: q, answer },
       });
-      S.picked[q] = option;
+      S.picked[q] = answer;
       S.verdicts[q] = verdict;
+      const order = optionOrder(q);
       live.textContent = verdict.correct
         ? t("Correct")
-        : `${t("Incorrect")}. ${t("The correct answer is")} ${letters[optionOrder(q).indexOf(verdict.answer)]}`;
+        : `${t("Incorrect")}. ${t("The correct answer is")} ${
+            typed(q)
+              ? verdict.accept[0]
+              : (questions[q].type === "multi"
+                  ? verdict.answers
+                  : [verdict.answer]
+                )
+                  .map((o) => letters[order.indexOf(o)])
+                  .sort()
+                  .join(", ")
+          }`;
       paint(true);
       stage.querySelector(".qz-next")?.focus({ preventScroll: true });
     } catch (error) {
@@ -7099,6 +7347,25 @@ function quizModal(a, resume) {
     } finally {
       busy = false;
     }
+  };
+  const pick = (option) => {
+    const q = S.order[S.i];
+    if (S.view !== "quiz" || busy) return;
+    if (S.mode === "practice" && S.verdicts[q]) return;
+    S.confirming = null;
+    // Multiple select: options toggle; practice then needs "Check answer".
+    if (questions[q].type === "multi") {
+      const chosen = new Set(S.picked[q] || []);
+      chosen.has(option) ? chosen.delete(option) : chosen.add(option);
+      if (chosen.size) S.picked[q] = [...chosen];
+      else delete S.picked[q];
+      return paint();
+    }
+    if (S.mode === "exam") {
+      S.picked[q] = option;
+      return paint();
+    }
+    void grade(option);
   };
   const step = (by) => {
     const review = S.view === "review";
@@ -7303,16 +7570,25 @@ function quizModal(a, resume) {
           ? S.verdicts[q]
           : null,
       chosen = S.picked[q] ?? null,
-      ok = verdict && chosen === verdict.answer,
+      multi = item.type === "multi",
+      text = typed(q),
+      ok = verdict && chosen !== null && verdict.correct,
+      // Practice checks a multiple-select or typed answer on request.
+      needsCheck =
+        !review && S.mode === "practice" && !verdict && (multi || text),
+      isChosen = (option) =>
+        multi ? (chosen || []).includes(option) : option === chosen,
       last = S.i === list.length - 1;
     const options = order.map((option, slot) => {
-      const right = verdict && option === verdict.answer,
-        wrong = verdict && option === chosen && !right,
+      const right =
+          verdict &&
+          (multi ? verdict.answers.includes(option) : option === verdict.answer),
+        wrong = verdict && isChosen(option) && !right,
         node = el(
           "button",
           {
             type: "button",
-            role: "radio",
+            role: multi ? "checkbox" : "radio",
             class:
               "qz-option" +
               (right
@@ -7321,10 +7597,10 @@ function quizModal(a, resume) {
                   ? " is-wrong"
                   : verdict
                     ? " is-dim"
-                    : option === chosen
+                    : isChosen(option)
                       ? " is-picked"
                       : ""),
-            "aria-checked": String(option === chosen),
+            "aria-checked": String(isChosen(option)),
             "aria-disabled": verdict ? "true" : null,
             onClick: () => void pick(option),
           },
@@ -7335,7 +7611,7 @@ function quizModal(a, resume) {
               ? icon("check")
               : wrong
                 ? icon("close")
-                : !verdict && option === chosen
+                : !verdict && isChosen(option)
                   ? icon("check")
                   : letters[slot],
           ),
@@ -7344,7 +7620,13 @@ function quizModal(a, resume) {
             ? el(
                 "span",
                 { class: "qz-option-state" },
-                t(right ? "Correct answer" : "Your answer"),
+                t(
+                  right
+                    ? multi && isChosen(option)
+                      ? "Correct, chosen"
+                      : "Correct answer"
+                    : "Your answer",
+                ),
               )
             : null,
         );
@@ -7358,7 +7640,32 @@ function quizModal(a, resume) {
         el("strong", {}, letter(option) + ". "),
         verdict.explainWrong[option],
       );
-    const others = verdict
+    const answerBox = text
+      ? el("input", {
+          class: "qz-input" + (verdict ? (ok ? " is-right" : " is-wrong") : ""),
+          type: "text",
+          maxlength: 300,
+          autocomplete: "off",
+          spellcheck: "false",
+          value: typeof chosen === "string" ? chosen : "",
+          placeholder: t("Type your answer"),
+          "aria-label": t("Your answer"),
+          disabled: Boolean(verdict),
+          onInput: (e) => {
+            const value = e.target.value.trim();
+            if (value) S.picked[q] = value;
+            else delete S.picked[q];
+            if (needsCheck) forward.disabled = !value;
+            paintSegments();
+          },
+          onKeydown: (e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            needsCheck ? void grade(S.picked[q]) : step(1);
+          },
+        })
+      : null;
+    const others = verdict && !multi && !text
       ? order.filter(
           (o) => o !== verdict.answer && o !== chosen && verdict.explainWrong?.[o],
         )
@@ -7376,8 +7683,16 @@ function quizModal(a, resume) {
             icon(ok ? "check" : "close"),
             t(ok ? "Correct" : chosen === null ? "Not answered" : "Not quite"),
           ),
+          text && !ok
+            ? el(
+                "p",
+                { class: "qz-accept" },
+                el("strong", {}, t("Accepted answer") + ": "),
+                verdict.accept.join(" · "),
+              )
+            : null,
           markdown(verdict.explanation, a.citations),
-          !ok && chosen !== null && verdict.explainWrong?.[chosen]
+          !ok && typeof chosen === "number" && verdict.explainWrong?.[chosen]
             ? why(chosen)
             : null,
           others.length
@@ -7394,7 +7709,9 @@ function quizModal(a, resume) {
     const hinted = !review && S.hintOpen === q;
     const previous = button("Previous", () => step(-1), "quiet");
     previous.disabled = S.i === 0;
-    const forward = button(
+    const forward = needsCheck
+      ? button("Check answer", () => void grade(S.picked[q]), "primary qz-next")
+      : button(
       review
         ? last
           ? "Finish review"
@@ -7409,7 +7726,9 @@ function quizModal(a, resume) {
       () => step(1),
       "primary qz-next",
     );
-    forward.disabled = !review && S.mode === "practice" && !verdict;
+    forward.disabled = needsCheck
+      ? S.picked[q] == null
+      : !review && S.mode === "practice" && !verdict;
     const hintButton =
       !review && S.mode === "practice" && item.hint
         ? button(hinted ? "Hide hint" : "Hint", toggleHint, "quiet", "help")
@@ -7476,11 +7795,20 @@ function quizModal(a, resume) {
       ),
       el("h3", { class: "qz-stem" }, item.question),
       hinted ? el("p", { class: "qz-hint" }, item.hint) : null,
-      el(
-        "div",
-        { class: "qz-options", role: "radiogroup", "aria-label": t("Answers") },
-        options,
-      ),
+      multi
+        ? el("p", { class: "qz-pick-note" }, t("Select all that apply."))
+        : null,
+      text
+        ? answerBox
+        : el(
+            "div",
+            {
+              class: "qz-options",
+              role: multi ? "group" : "radiogroup",
+              "aria-label": t("Answers"),
+            },
+            options,
+          ),
       review && chosen === null
         ? el("p", { class: "muted small" }, t("Not answered"))
         : null,
@@ -7901,11 +8229,29 @@ function notebookSettings() {
     language = el(
       "select",
       {},
-      ["English", "Português (Brasil)"].map((s) =>
+      outputLanguages.map((s) =>
         el(
           "option",
           { value: s, selected: s === (n.settings.language || "English") },
           s,
+        ),
+      ),
+    ),
+    answerLength = el(
+      "select",
+      {},
+      [
+        ["short", "Short"],
+        ["default", "Default"],
+        ["long", "Long"],
+      ].map(([value, label]) =>
+        el(
+          "option",
+          {
+            value,
+            selected: value === (n.settings.answerLength || "default"),
+          },
+          t(label),
         ),
       ),
     ),
@@ -7928,6 +8274,7 @@ function notebookSettings() {
               settings: {
                 style: style.value,
                 language: language.value,
+                answerLength: answerLength.value,
                 instructions: instructions.value,
               },
             },
@@ -7941,6 +8288,7 @@ function notebookSettings() {
     field("Title", title),
     field("Teaching style", style),
     field("Explanation language", language),
+    field("Answer length", answerLength),
     field("Custom instructions", instructions),
     el(
       "div",

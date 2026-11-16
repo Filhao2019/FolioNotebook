@@ -101,6 +101,69 @@ test("quiz scoring is deterministic and does not infer psychological mistakes", 
   assert.deepEqual(scoreQuiz(q, [null]).reviewTopics, ["Energy"]);
   assert.equal(scoreQuiz(q, [0]).results[0].correct, false);
 });
+test("quiz scoring covers multiple select, fill in the blank and short answer", () => {
+  const base = { explanation: "E", topic: "T", refs: [1] };
+  const q = [
+    {
+      ...base,
+      type: "multi",
+      question: "Pick two",
+      options: ["a", "b", "c", "d"],
+      answers: [0, 2],
+    },
+    {
+      ...base,
+      type: "blank",
+      question: "Energy is stored in ____.",
+      accept: ["ATP", "adenosine triphosphate"],
+    },
+    {
+      ...base,
+      type: "short",
+      question: "Site of respiration?",
+      accept: ["Mitocôndria"],
+    },
+  ];
+  // Order, case, accents and punctuation do not matter.
+  assert.equal(scoreQuiz(q, [[2, 0], " atp. ", "mitocondria"]).correct, 3);
+  assert.equal(scoreQuiz(q, [[0], "", "nucleus"]).correct, 0);
+  // One extra option makes a multiple-select answer wrong.
+  assert.equal(scoreQuiz(q, [[0, 2, 3], null, null]).correct, 0);
+});
+test("a quiz question must carry the answer its type needs", () => {
+  const quiz = (question) =>
+    JSON.stringify({
+      title: "Q",
+      questions: [
+        { question: "Q?", explanation: "E", topic: "T", refs: [1], ...question },
+      ],
+    });
+  const type = (question) =>
+    parseStructured(quiz(question), "quiz", 1).questions[0].type;
+  assert.equal(type({ options: ["a", "b"], answer: 1 }), "choice");
+  assert.equal(type({ type: "blank", accept: ["ATP"] }), "blank");
+  // A repeated index in the key must not make the question unanswerable.
+  const repeated = parseStructured(
+    quiz({ type: "multi", options: ["a", "b", "c"], answers: [0, 0, 2] }),
+    "quiz",
+    1,
+  ).questions;
+  assert.deepEqual(repeated[0].answers, [0, 2]);
+  assert.equal(scoreQuiz(repeated, [[0, 2]]).correct, 1);
+  assert.equal(
+    type({ type: "multi", options: ["a", "b", "c"], answers: [0, 2] }),
+    "multi",
+  );
+  for (const bad of [
+    { type: "blank" },
+    { type: "short", accept: [] },
+    { type: "multi", options: ["a", "b", "c"], answers: [0, 5] },
+    { type: "multi", options: ["a", "b", "c"], answers: [] },
+    { options: ["a", "b"], answer: 2 },
+    {},
+  ])
+    assert.throws(() => parseStructured(quiz(bad), "quiz", 1));
+});
 test("structured output rejects out-of-range keys, forged citations and cyclic maps", () => {
   assert.throws(() =>
     parseStructured(

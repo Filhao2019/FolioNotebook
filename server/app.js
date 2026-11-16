@@ -59,6 +59,9 @@ import {
   rewritePrompt,
   scoreQuiz,
   safeQuiz,
+  isCorrect,
+  answerText,
+  questionTypes,
 } from "./learning.js";
 import { estimateCost } from "./cost.js";
 import { effortChoices, normalizeEffort, resolveEffort } from "./effort.js";
@@ -69,6 +72,18 @@ import { buildGraph } from "./graph.js";
 const root = fileURLToPath(new URL("../public/", import.meta.url));
 const { version: appVersion } = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
+);
+// Explanation languages, with the transcript language each one prefers.
+const languages = {
+  English: "en",
+  "Português (Brasil)": "pt",
+  Español: "es",
+  Français: "fr",
+  Deutsch: "de",
+  Italiano: "it",
+};
+const languageSchema = z.enum(
+  /** @type {[string, ...string[]]} */ (Object.keys(languages)),
 );
 const idSchema = z.string().uuid();
 const short = z.string().trim().min(1).max(200);
@@ -89,7 +104,8 @@ const settingsSchema = z.object({
       "Custom Tutor",
     ])
     .optional(),
-  language: z.enum(["English", "Português (Brasil)"]).optional(),
+  language: languageSchema.optional(),
+  answerLength: z.enum(["short", "default", "long"]).optional(),
   instructions: z.string().max(4000).optional(),
   connectionId: idSchema.optional(),
   model: z.string().max(200).optional(),
@@ -100,6 +116,12 @@ const settingsSchema = z.object({
   emoji: z.string().max(16).optional(),
   effort: effortSchema.optional(),
 });
+// One quiz answer: an option, several options, or typed text.
+const quizAnswer = z.union([
+  z.number().int().min(0).max(5),
+  z.array(z.number().int().min(0).max(5)).max(6),
+  z.string().max(300),
+]);
 const sourceIdList = (min) =>
   z
     .array(idSchema)
@@ -118,7 +140,7 @@ const cardAiSchema = z.object({
   connectionId: idSchema.optional(),
   model: z.string().min(1).max(200).optional(),
   effort: effortSchema.default("auto"),
-  language: z.enum(["English", "Português (Brasil)"]).optional(),
+  language: languageSchema.optional(),
 });
 /** Where each referenced passage number comes from, for the client's source links. */
 const passageCitations = (chunks, refs) =>
@@ -145,6 +167,8 @@ const publicUser = (row) => ({
 export async function createApp(options = {}) {
   // Requests per minute per client address; tests may raise it.
   const ipRequestLimit = options.ipRequestLimit ?? 240;
+  // Sign-ins and registrations per address in ten minutes.
+  const authLimit = options.authLimit ?? 12;
   const production =
     options.production ?? process.env.NODE_ENV === "production";
   const origin =
@@ -266,11 +290,10 @@ export async function createApp(options = {}) {
     }
   };
   /** Transcript languages to prefer for a notebook (or a chat's own language). */
-  const transcriptLanguages = (notebook, language) =>
-    (language || JSON.parse(notebook.settings).language) ===
-    "Português (Brasil)"
-      ? ["pt", "en"]
-      : ["en"];
+  const transcriptLanguages = (notebook, language) => {
+    const code = languages[language || JSON.parse(notebook.settings).language];
+    return code && code !== "en" ? [code, "en"] : ["en"];
+  };
   /**
    * Add the YouTube videos linked in a chat message as sources and wait (up to
    * 30 s in total) until they can be searched. Failures never throw; they are
@@ -697,7 +720,7 @@ export async function createApp(options = {}) {
       ["register", "login", "guest"].includes(path[1]) &&
       method === "POST"
     ) {
-      limiter.take(`auth:${req.socket.remoteAddress}`, 12, 600000);
+      limiter.take(`auth:${req.socket.remoteAddress}`, authLimit, 600000);
       const data = await body(req);
       let user;
       if (path[1] === "guest") {
@@ -1473,11 +1496,16 @@ export async function createApp(options = {}) {
             cardFocus: z
               .enum(["definitions", "concepts", "qa", "exam", "mixed"])
               .default("mixed"),
+            questionTypes: z
+              .array(z.enum(questionTypes))
+              .min(1)
+              .max(4)
+              .default(["choice"]),
             explanations: z.boolean().default(true),
             spaced: z.boolean().default(true),
             fromDeck: idSchema.optional(),
             focus: z.string().max(1000).default(""),
-            language: z.enum(["English", "Português (Brasil)"]).optional(),
+            language: languageSchema.optional(),
             embeddingConnectionId: idSchema.optional(),
             embeddingModel: z.string().max(200).optional(),
           })
@@ -2099,14 +2127,16 @@ export async function createApp(options = {}) {
         const input = z
           .object({
             index: z.number().int().min(0).max(29),
-            answer: z.number().int().min(0).max(5),
+            answer: quizAnswer,
           })
           .parse(await body(req));
         const q = JSON.parse(artifact.content).questions[input.index];
         assert(q, 400, "This question is unavailable.");
         return json(res, {
-          correct: input.answer === q.answer,
+          correct: isCorrect(q, input.answer),
           answer: q.answer,
+          answers: q.answers || [],
+          accept: q.accept || [],
           explanation: q.explanation,
           explainWrong: q.explainWrong || {},
           refs: q.refs,
@@ -2117,7 +2147,7 @@ export async function createApp(options = {}) {
         const content = JSON.parse(artifact.content);
         const input = z
           .object({
-            answers: z.array(z.number().int().min(0).max(5).nullable()).max(30),
+            answers: z.array(quizAnswer.nullable()).max(30),
           })
           .parse(await body(req));
         assert(
@@ -2145,10 +2175,7 @@ export async function createApp(options = {}) {
         const input = z
           .object({
             attemptId: idSchema.optional(),
-            answers: z
-              .array(z.number().int().min(0).max(5).nullable())
-              .max(30)
-              .optional(),
+            answers: z.array(quizAnswer.nullable()).max(30).optional(),
           })
           .parse(await body(req));
         let answers = input.answers;
@@ -2170,7 +2197,7 @@ export async function createApp(options = {}) {
         const missed = scoreQuiz(content.questions, answers)
           .results.map((r, i) => ({
             ...r,
-            options: content.questions[i].options,
+            back: answerText(content.questions[i]),
           }))
           .filter((r) => !r.correct);
         assert(
@@ -2182,7 +2209,7 @@ export async function createApp(options = {}) {
           title = `Missed: ${artifact.title}`.slice(0, 200),
           cards = missed.map((r) => ({
             front: r.question,
-            back: r.options[r.answer],
+            back: r.back,
             hint: "",
             explanation: r.explanation.slice(0, 2000),
             refs: r.refs,

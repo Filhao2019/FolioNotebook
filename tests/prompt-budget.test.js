@@ -114,6 +114,15 @@ test("chat prompt teaches in study mode with highlighted key points", () => {
   assert.doesNotMatch(groundedPrompt([], {}, "strict"), /==double equals==/);
 });
 
+test("the chat prompt carries the chosen answer length", () => {
+  const prompt = (answerLength) =>
+    groundedPrompt([], { answerLength }, "strict", true);
+  assert.match(prompt("short"), /Answer length: short/);
+  assert.match(prompt("long"), /Answer length: long/);
+  assert.doesNotMatch(prompt("default"), /Answer length/);
+  assert.doesNotMatch(prompt(undefined), /Answer length/);
+});
+
 test("text shared by neighbouring excerpts is sent only once", async () => {
   const id = randomUUID();
   const text = Array.from(

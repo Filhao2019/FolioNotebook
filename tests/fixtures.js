@@ -140,6 +140,37 @@ export function fixtureProvider(provider) {
             },
           ],
         };
+      else if (prompt.includes("Question types:"))
+        data = {
+          title: "Mixed check",
+          questions: [
+            {
+              type: "multi",
+              question: "Which organelles are named in the source?",
+              options: ["Mitochondria", "Ribosome", "Chloroplasts", "Lysosome"],
+              answers: [0, 2],
+              explanation: "The source names mitochondria and chloroplasts.",
+              topic: "Organelles",
+              ...ref,
+            },
+            {
+              type: "blank",
+              question: "Energy is transferred into ____.",
+              accept: ["ATP", "adenosine triphosphate"],
+              explanation: "The source states energy is transferred into ATP.",
+              topic: "Cellular respiration",
+              ...ref,
+            },
+            {
+              type: "short",
+              question: "Where does aerobic respiration occur?",
+              accept: ["Mitochondria"],
+              explanation: "Mitochondria are sites of aerobic respiration.",
+              topic: "Organelles",
+              ...ref,
+            },
+          ],
+        };
       else if (prompt.includes("Generate a quiz"))
         data = {
           title: "Cell check",

@@ -12,6 +12,8 @@ const app = await createApp({
   providerFactory: fixtureProvider,
   // All browser scenarios share one loopback address within a minute.
   ipRequestLimit: 2000,
+  // Every scenario signs in from the same address.
+  authLimit: 200,
 });
 app.server.listen(4391, "127.0.0.1");
 for (const signal of ["SIGINT", "SIGTERM"])

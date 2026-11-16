@@ -7,9 +7,9 @@ import { assert } from "./security.js";
 export function validateUpload(name, buffer) {
   const format = name.split(".").at(-1).toLowerCase();
   assert(
-    ["pdf", "docx", "txt", "md", "csv"].includes(format),
+    ["pdf", "docx", "pptx", "epub", "txt", "md", "csv"].includes(format),
     415,
-    "Supported files: PDF, DOCX, TXT, Markdown and CSV. Other formats are planned.",
+    "Supported files: PDF, Word (DOCX), PowerPoint (PPTX), EPUB, TXT, Markdown and CSV.",
   );
   assert(
     buffer.length > 0 && buffer.length <= 10 * 1024 * 1024,
@@ -22,11 +22,11 @@ export function validateUpload(name, buffer) {
       415,
       "The file does not have a valid PDF signature.",
     );
-  else if (format === "docx")
+  else if (["docx", "pptx", "epub"].includes(format))
     assert(
       buffer[0] === 0x50 && buffer[1] === 0x4b,
       415,
-      "The file does not have a valid DOCX signature.",
+      `The file does not have a valid ${format.toUpperCase()} signature.`,
     );
   else assert(!buffer.includes(0), 415, "Text files must contain UTF-8 text.");
   return format;

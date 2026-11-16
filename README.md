@@ -50,7 +50,7 @@ Sharing, groups and communities work between accounts on the **same Folio server
 
 - Password accounts and persistent HttpOnly sessions; guest workspaces; ownership checks.
 - SQLite persistence, durable ingestion jobs, cancellation/retry, upload validation.
-- PDF text with page references, DOCX raw text, UTF-8 TXT/Markdown/CSV.
+- PDF text with page references, DOCX raw text, PowerPoint (PPTX) text per slide, EPUB text per chapter, UTF-8 TXT/Markdown/CSV.
 - Several AI connections at once; Settings chooses the one in use and each connection remembers its model.
 - Read-only notebook sharing by email; study groups whose notebooks reach every member and are view-only or editable by group setting; communities where only the president publishes and anyone follows, likes and follows notebooks.
 - Live model discovery, validated connections, encrypted credentials and SSE chat.

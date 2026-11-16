@@ -744,3 +744,81 @@ test("card AI reads the part of a video transcript about the card, not all of it
     await h.stop();
   }
 });
+
+test("a quiz can mix multiple select, fill in the blank and short answer", async () => {
+  const h = await start(4573);
+  try {
+    const { user, generate } = await learner(h, "ana");
+    const made = await generate({
+      kind: "quiz",
+      questionTypes: ["multi", "blank", "short"],
+    });
+    assert.equal(made.status, 201);
+    assert.match(prompts(h.calls).at(-1), /Question types: multi, blank, short/);
+    // The example lists only the chosen types.
+    assert.doesNotMatch(prompts(h.calls).at(-1), /"type":"choice"/);
+    const quiz = made.data;
+    assert.deepEqual(
+      quiz.content.questions.map((q) => q.type),
+      ["multi", "blank", "short"],
+    );
+    // The answer key stays on the server.
+    assert.doesNotMatch(JSON.stringify(quiz.content), /"answers"|"accept"/);
+    const check = (body) =>
+      user.call(`artifacts/${quiz.id}/check`, "POST", body);
+    const wrong = (await check({ index: 0, answer: [0, 1] })).data;
+    assert.equal(wrong.correct, false);
+    assert.deepEqual(wrong.answers, [0, 2]);
+    const right = (await check({ index: 1, answer: "atp" })).data;
+    assert.equal(right.correct, true);
+    assert.deepEqual(right.accept, ["ATP", "adenosine triphosphate"]);
+    const attempt = await user.call(`artifacts/${quiz.id}/attempt`, "POST", {
+      answers: [[2, 0], "ATP", "nucleus"],
+    });
+    assert.equal(attempt.status, 200);
+    assert.equal(attempt.data.correct, 2);
+    assert.equal(attempt.data.results[2].selected, "nucleus");
+    // A missed typed answer becomes a card with the accepted answer.
+    const made2 = await user.call(`artifacts/${quiz.id}/flashcards`, "POST", {
+      attemptId: attempt.data.id,
+    });
+    const deck = (await user.call("artifacts/" + made2.data.id)).data;
+    assert.deepEqual(
+      deck.cards.map((c) => c.back),
+      ["Mitochondria"],
+    );
+    assert.equal(
+      (await generate({ kind: "quiz", questionTypes: ["essay"] })).status,
+      400,
+    );
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a notebook accepts more languages and an answer length", async () => {
+  const seen = [];
+  const h = await start(4574, {
+    fetchWebSource: async (url, options) => {
+      seen.push(options?.languages);
+      return { name: "Video.md", buffer: Buffer.from(sourceText), url };
+    },
+  });
+  try {
+    const { user, notebook } = await learner(h, "ana");
+    const patch = (settings) =>
+      user.call("notebooks/" + notebook, "PATCH", { settings });
+    assert.equal(
+      (await patch({ language: "Español", answerLength: "short" })).status,
+      200,
+    );
+    assert.equal((await patch({ answerLength: "tiny" })).status, 400);
+    assert.equal((await patch({ language: "Klingon" })).status, 400);
+    await user.call(`notebooks/${notebook}/sources`, "POST", {
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    });
+    assert.deepEqual(seen, [["es", "en"]]);
+  } finally {
+    await h.stop();
+  }
+});

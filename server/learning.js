@@ -3,6 +3,7 @@ import { AppError } from "./security.js";
 
 const refs = z.array(z.number().int().positive()).max(30).default([]);
 const text = z.string().min(1).max(12000);
+export const questionTypes = ["choice", "multi", "blank", "short"];
 const flashcard = z.object({
   front: text,
   back: text,
@@ -111,9 +112,18 @@ export const schemas = {
       .array(
         z
           .object({
+            // choice: one option; multi: several options; blank and short:
+            // a typed answer compared with `accept`.
+            type: z.enum(questionTypes).default("choice"),
             question: text,
-            options: z.array(text).min(2).max(6),
-            answer: z.number().int().min(0),
+            options: z.array(text).max(6).default([]),
+            answer: z.number().int().min(0).default(0),
+            answers: z
+              .array(z.number().int().min(0))
+              .max(6)
+              .default([])
+              .transform((list) => [...new Set(list)]),
+            accept: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
             hint: z.string().max(600).default(""),
             explanation: text,
             // Why each wrong option is wrong, keyed by its option index.
@@ -123,8 +133,15 @@ export const schemas = {
             refs,
           })
           .refine(
-            (q) => q.answer < q.options.length,
-            "Answer must refer to an option",
+            (q) =>
+              q.type === "choice"
+                ? q.options.length >= 2 && q.answer < q.options.length
+                : q.type === "multi"
+                  ? q.options.length >= 3 &&
+                    q.answers.length >= 1 &&
+                    q.answers.every((a) => a < q.options.length)
+                  : q.accept.length >= 1,
+            "The question lacks the answer its type needs",
           ),
       )
       .min(1)
@@ -354,13 +371,53 @@ export function weaknesses(db, { notebookId, user }) {
 export const weakConcepts = (db, notebookId) => [
   ...new Set(weaknesses(db, { notebookId }).map((x) => x.label)),
 ];
+// Typed answers match whatever the case, accents or punctuation.
+const plain = (s) =>
+  String(s)
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+/**
+ * Whether one answer is right: an option index, a list of option indexes, or
+ * typed text, by the question's type. Quizzes saved before 0.8.0 have no type.
+ * shortcut: typed answers need an exact match with an accepted answer; grade
+ * them with the model if learners report right answers marked wrong.
+ */
+export function isCorrect(q, given) {
+  if (given == null) return false;
+  if (q.type === "multi")
+    return (
+      Array.isArray(given) &&
+      new Set(given).size === q.answers.length &&
+      q.answers.every((a) => given.includes(a))
+    );
+  if (q.type === "blank" || q.type === "short")
+    return (
+      typeof given === "string" &&
+      plain(given) !== "" &&
+      q.accept.some((a) => plain(a) === plain(given))
+    );
+  return given === q.answer;
+}
+/** The right answer of a question as text, for a flashcard back. */
+export const answerText = (q) =>
+  q.type === "multi"
+    ? q.answers.map((a) => q.options[a]).join("; ")
+    : q.type === "blank" || q.type === "short"
+      ? q.accept[0]
+      : q.options[q.answer];
 export function scoreQuiz(questions, answers) {
   const results = questions.map((q, i) => ({
     question: q.question,
     topic: q.topic,
+    type: q.type || "choice",
     selected: answers[i] ?? null,
     answer: q.answer,
-    correct: answers[i] === q.answer,
+    answers: q.answers || [],
+    accept: q.accept || [],
+    correct: isCorrect(q, answers[i]),
     explanation: q.explanation,
     explainWrong: q.explainWrong || {},
     refs: q.refs,
@@ -380,12 +437,13 @@ export function safeQuiz(content) {
   return {
     ...content,
     questions: content.questions.map(
-      ({ question, options, topic, hint, difficulty }) => ({
+      ({ question, options, topic, hint, difficulty, type }) => ({
         question,
-        options,
+        options: options || [],
         topic,
         hint: hint || "",
         difficulty: difficulty || 2,
+        ...(type && type !== "choice" ? { type } : {}),
       }),
     ),
   };
@@ -394,6 +452,17 @@ export function safeQuiz(content) {
 // tokens and told the model nothing it needed.
 // The quiz and flashcard rules are the question-writing rules of the
 // notebooklm-quiz and notebooklm-flashcards skills, shortened for a prompt.
+// One example question per type, for a quiz that mixes question types.
+const questionEnd =
+  '"hint":"...","explanation":"...","topic":"...","difficulty":2,"refs":[1]}';
+const questionShapes = {
+  choice:
+    '{"type":"choice","question":"...","options":["...","...","...","..."],"answer":0,"explainWrong":{"1":"..."},',
+  multi:
+    '{"type":"multi","question":"...","options":["...","...","...","..."],"answers":[0,2],',
+  blank: '{"type":"blank","question":"... ____ ...","accept":["..."],',
+  short: '{"type":"short","question":"...","accept":["..."],',
+};
 const kindRules = {
   quiz: "Answer is a zero-based option index. Each question tests one concept, and its stem is a complete question a learner can answer before reading the options. Give exactly four options with one best answer; never use 'all of the above', 'none of the above' or 'A and B'. Build wrong options from real misconceptions, near-miss terms, off-by-one values or reversed cause and effect. Keep the options parallel in length and grammar, so the right one is not the longest or most detailed. Spread the right answer evenly over the four positions, never more than twice in a row at one position. Avoid negative stems. hint: point to the relevant idea without containing or paraphrasing the answer. explanation: one or two sentences on why the right answer is right, giving the mechanism. explainWrong: for every wrong option, keyed by its zero-based index, one short line on why it is wrong and what it actually describes. topic: at most three words. difficulty: 1 recall, 2 understanding or application, 3 analysis; mix them within the requested difficulty.",
   flashcards:
@@ -426,12 +495,18 @@ export function generationPrompt(input, labelSources = [], extra = {}) {
   if (input.kind === "questions")
     return `Suggest three short questions a learner could ask next about these sources. Each must be answerable from the sources, cover a different idea, and be under 120 characters. Write them in the response language. Return ONLY valid JSON, compact with no indentation, in this exact structure: ${shapes.questions}.`;
   const cards = ["flashcards", "quiz"].includes(input.kind);
+  const types = input.kind === "quiz" ? input.questionTypes || [] : [];
+  const mixed = types.some((type) => type !== "choice");
   const shape =
     input.kind === "flashcards" && input.explanations === false
       ? shapes.flashcardsLean
-      : shapes[input.kind];
+      : mixed
+        ? `{"title":"...","questions":[${types.map((type) => questionShapes[type] + questionEnd).join(",")}]}`
+        : shapes[input.kind];
   const notes = [
     cards && cardFocusRules[input.cardFocus],
+    mixed &&
+      `Question types: ${types.join(", ")}. Mix them about evenly and set "type" on every question. For these types the rules below change: "multi" has four or five options and "answers" lists every correct zero-based index (two or three), with no "answer"; "blank" is a sentence with one gap written ____ and "short" is a question answered in one to three words, both with no options and with "accept" listing the answer and up to three other accepted spellings or synonyms.`,
     input.difficulty === "adaptive" &&
       (extra.weak?.length
         ? `Prioritise these concepts the learner finds hard: ${JSON.stringify(extra.weak)}.`

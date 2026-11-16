@@ -31,6 +31,9 @@ try {
     const mammoth = await import("mammoth");
     const result = await mammoth.extractRawText({ buffer });
     pages = [{ page: null, text: result.value }];
+  } else if (workerData.format === "pptx" || workerData.format === "epub") {
+    const { pptxPages, epubPages } = await import("./office.js");
+    pages = (workerData.format === "pptx" ? pptxPages : epubPages)(buffer);
   } else {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
     if (text.includes("\0"))
