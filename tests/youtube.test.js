@@ -575,11 +575,13 @@ test("a failing YouTube fetch does not fail the chat", async () => {
 });
 
 test("a video source is read whole on a later question, not a few sections", async () => {
-  const systems = [];
+  const systems = [],
+    caches = [];
   const providerFactory = (provider) => ({
     ...fixtureProvider(provider),
     async *streamChat(request) {
       systems.push(request.system);
+      caches.push(request.cache);
       yield { text: "It covers a lot [1]." };
       yield { usage: { input: 10, output: 5 } };
     },
@@ -630,6 +632,9 @@ test("a video source is read whole on a later question, not a few sections", asy
         );
       // One whole transcript, not numbered pieces of it.
       assert.doesNotMatch(systems[0], /\n\[2\] /);
+      // The rules and the transcript are the same for the next question, so
+      // the provider is told to cache all of this prompt.
+      assert.equal(caches[0], systems[0].length);
     },
   );
 });

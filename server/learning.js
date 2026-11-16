@@ -422,9 +422,9 @@ const cardFocusRules = {
  */
 export function generationPrompt(input, labelSources = [], extra = {}) {
   if (input.kind === "labels")
-    return `Label each source below with one short topic of one to three words, written in the response language. Give related sources the same topic and use at most six different topics. Sources: ${labelSources.map((s, i) => `${i + 1}. ${JSON.stringify(s.title)}`).join("; ")}. Return ONLY valid JSON in this exact structure: ${shapes.labels}, where source is the source number from this list.`;
+    return `Label each source below with one short topic of one to three words, written in the response language. Give related sources the same topic and use at most six different topics. Sources: ${labelSources.map((s, i) => `${i + 1}. ${JSON.stringify(s.title)}`).join("; ")}. Return ONLY valid JSON, compact with no indentation, in this exact structure: ${shapes.labels}, where source is the source number from this list.`;
   if (input.kind === "questions")
-    return `Suggest three short questions a learner could ask next about these sources. Each must be answerable from the sources, cover a different idea, and be under 120 characters. Write them in the response language. Return ONLY valid JSON in this exact structure: ${shapes.questions}.`;
+    return `Suggest three short questions a learner could ask next about these sources. Each must be answerable from the sources, cover a different idea, and be under 120 characters. Write them in the response language. Return ONLY valid JSON, compact with no indentation, in this exact structure: ${shapes.questions}.`;
   const cards = ["flashcards", "quiz"].includes(input.kind);
   const shape =
     input.kind === "flashcards" && input.explanations === false
@@ -439,7 +439,7 @@ export function generationPrompt(input, labelSources = [], extra = {}) {
     extra.deckFronts?.length &&
       `Test the concepts of these flashcards: ${JSON.stringify(extra.deckFronts)}.`,
   ].filter(Boolean);
-  return `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}.${notes.length ? " " + notes.join(" ") : ""} Return ONLY valid JSON in this exact structure: ${shape}. Cite each item using refs. Do not invent facts.${kindRules[input.kind] ? " " + kindRules[input.kind] : ""}`;
+  return `Generate a ${input.kind}. Difficulty: ${input.difficulty}. Target count: ${input.count}. Focus: ${JSON.stringify(input.focus)}.${notes.length ? " " + notes.join(" ") : ""} Return ONLY valid JSON, compact with no indentation, in this exact structure: ${shape}. Cite each item using refs. Do not invent facts.${kindRules[input.kind] ? " " + kindRules[input.kind] : ""}`;
 }
 /**
  * Ask for the detailed explanation of one flashcard.
@@ -447,7 +447,7 @@ export function generationPrompt(input, labelSources = [], extra = {}) {
  * @param {boolean} sources whether source excerpts are supplied
  */
 export const explainPrompt = (card, sources) =>
-  `Explain this flashcard to a learner. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${card.explanation ? ` Existing note: ${JSON.stringify(card.explanation)}.` : ""} ${sources ? "Ground it in the source excerpts and cite them in refs." : "This notebook has no ready sources: answer from the card alone and use refs []."} why: why the answer is correct. detail: the reasoning, mechanism or background. simple: an easier version for a struggling student. example: a practical example. takeaway: one sentence to remember. followUp: one related flashcard, or null. Return ONLY valid JSON in this exact structure: ${shapes.explain}. Do not invent facts.`;
+  `Explain this flashcard to a learner. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${card.explanation ? ` Existing note: ${JSON.stringify(card.explanation)}.` : ""} ${sources ? "Ground it in the source excerpts and cite them in refs." : "This notebook has no ready sources: answer from the card alone and use refs []."} why: why the answer is correct. detail: the reasoning, mechanism or background. simple: an easier version for a struggling student. example: a practical example. takeaway: one sentence to remember. followUp: one related flashcard, or null. Return ONLY valid JSON, compact with no indentation, in this exact structure: ${shapes.explain}. Do not invent facts.`;
 /**
  * System prompt for questions about one flashcard.
  * @param {Record<string, any>} card
@@ -469,7 +469,7 @@ export const askContext = (card, detail = null) => {
  * @param {string} [instructions]
  */
 export const rewritePrompt = (card, instructions = "") =>
-  `Rewrite this flashcard about the same concept in clearly different wording. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${instructions ? ` Extra instructions: ${JSON.stringify(instructions)}.` : ""} Return ONLY valid JSON in this exact structure: ${shapes.cardRewrite}. Cite using refs. Do not invent facts.`;
+  `Rewrite this flashcard about the same concept in clearly different wording. Front: ${JSON.stringify(card.front)}. Back: ${JSON.stringify(card.back)}.${instructions ? ` Extra instructions: ${JSON.stringify(instructions)}.` : ""} Return ONLY valid JSON, compact with no indentation, in this exact structure: ${shapes.cardRewrite}. Cite using refs. Do not invent facts.`;
 // Find the first complete object without treating braces inside JSON strings
 // as delimiters. Local models sometimes wrap an otherwise valid result in prose.
 function jsonObject(raw) {

@@ -2,6 +2,8 @@
 
 ## Repeatable checks
 
+Release 0.7.5 validation (2026-11-16): 120 backend tests, 14 passing browser scenarios, one opt-in screenshot scenario skipped, checkJs and lint passed. See [RELEASE-0.7.5.md](RELEASE-0.7.5.md) for the token reductions and what was not verified. No live paid provider was used.
+
 Release 0.7.0 validation (2026-11-15): 115 backend tests, 14 passing browser scenarios, one opt-in screenshot scenario skipped, checkJs and lint passed. Production dependency audit found no known advisories. See [RELEASE-0.7.0.md](RELEASE-0.7.0.md) for the fixes, measured prompt reductions, and limitations. These fixture results do not validate live paid providers or their billed token counts.
 
 Latest observed baseline (2026-11-11): 22 backend tests, 5 browser scenarios, checkJs and lint passed. `tests/codex-provider.test.js` exercises the local Codex bridge through a fake child process; `tests/slides.test.js` exercises slide schemas, owned connections, provider switching and saved content. `tests/e2e/notebook-workflows.spec.js` covers reports/slides and source/note/layout workflows. These are fixture checks, not live provider/account verification. See VALIDATION.md for startup recovery and visual-review evidence.

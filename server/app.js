@@ -42,6 +42,8 @@ import {
   groundedPrompt,
   validateCitations,
   joinTranscripts,
+  focusPassage,
+  stablePrefix,
 } from "./retrieval.js";
 import {
   generationPrompt,
@@ -462,6 +464,11 @@ export async function createApp(options = {}) {
         notebookId,
       )
       .map((s) => s.id);
+  /** A passage cut to the part about a card: a cited video transcript is far longer than one card needs. */
+  const cardFocus = (card, chunk) => ({
+    ...chunk,
+    text: focusPassage(chunk.text, `${card.front} ${card.back}`),
+  });
   /**
    * Up to four passages that match a card, plus the ones the card itself cites,
    * renumbered from 1. Empty when the notebook has no ready sources.
@@ -478,6 +485,7 @@ export async function createApp(options = {}) {
         null,
         false,
         4,
+        false,
       )
     ).chunks;
     const cited = JSON.parse(artifact.citations);
@@ -490,7 +498,9 @@ export async function createApp(options = {}) {
           !found.some((f) => f.chunkId === c.chunkId),
       )
       .slice(0, 2);
-    return [...found, ...own].map((c, i) => ({ ...c, id: i + 1 }));
+    return [...found, ...own].map((c, i) =>
+      cardFocus(card, { ...c, id: i + 1 }),
+    );
   };
   /** Rate limit, daily quota and concurrency checks before any model request. */
   const aiGate = (user) => {
@@ -1863,6 +1873,8 @@ export async function createApp(options = {}) {
               }),
               system,
               messages: history,
+              // Whole video transcripts are resent with every question.
+              cache: stablePrefix(evidence.chunks, settings, input.mode),
               signal: abort.signal,
             })) {
               if (part.text) {
@@ -2409,7 +2421,7 @@ export async function createApp(options = {}) {
           .filter((c) => c && live.includes(c.sourceId));
         const added = [];
         const chunks = own.length
-          ? own
+          ? own.map((c) => cardFocus(card, c))
           : (await cardPassages(card, artifact)).map((c) => {
               const at = cited.findIndex((x) => x.chunkId === c.chunkId);
               if (at >= 0) return { ...c, id: at + 1 };

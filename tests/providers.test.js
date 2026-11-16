@@ -285,6 +285,51 @@ test("a cached request marks the Claude system prompt for prompt caching", async
   assert.equal(plain.system, "s");
 });
 
+test("a cache point splits the Claude system prompt after its stable part", async () => {
+  const sent = await sentBody("anthropic", {
+    model: "claude-sonnet-5-5",
+    system: "stable|varies",
+    cache: 7,
+  });
+  assert.deepEqual(sent.system, [
+    { type: "text", text: "stable|", cache_control: { type: "ephemeral" } },
+    { type: "text", text: "varies" },
+  ]);
+  // No stable part (a chat without a whole video transcript): nothing is cached.
+  const plain = await sentBody("anthropic", {
+    model: "claude-sonnet-5-5",
+    cache: 0,
+  });
+  assert.equal(plain.system, "s");
+});
+
+test("Claude tokens read from or written to the cache count as input", async () => {
+  const adapter = createProvider("anthropic", "key", {
+    fetcher: async () =>
+      stream([
+        {
+          type: "message_start",
+          message: {
+            usage: {
+              input_tokens: 10,
+              cache_read_input_tokens: 900,
+              cache_creation_input_tokens: 90,
+            },
+          },
+        },
+        { type: "content_block_delta", delta: { text: "ok" } },
+        { type: "message_delta", usage: { output_tokens: 5 } },
+        { type: "message_stop" },
+      ]),
+  });
+  const result = await adapter.chat({
+    model: "claude-sonnet-5-5",
+    system: "s",
+    messages: [],
+  });
+  assert.deepEqual(result.usage, { input: 1000, output: 5 });
+});
+
 test("Gemini thinking tokens count as output", async () => {
   const adapter = createProvider("gemini", "key", {
     fetcher: async () =>

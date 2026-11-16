@@ -307,9 +307,12 @@ export function createProvider(providerId, key, options = {}) {
       effort = "auto",
       // Cache the system prompt (Claude only; other providers cache repeated
       // prefixes on their own). Worth it when the same sources are sent again.
+      // A number caches only that many leading characters: the part that
+      // does not change with the question.
       cache = false,
     }) {
       const reasoning = effortFor(config.protocol, providerId, model, effort);
+      const cached = cache === true ? system.length : cache;
       let path, body;
       if (config.protocol === "responses") {
         path = "/responses";
@@ -326,13 +329,16 @@ export function createProvider(providerId, key, options = {}) {
         path = "/messages";
         body = {
           model,
-          system: cache
+          system: cached
             ? [
                 {
                   type: "text",
-                  text: system,
+                  text: system.slice(0, cached),
                   cache_control: { type: "ephemeral" },
                 },
+                ...(cached < system.length
+                  ? [{ type: "text", text: system.slice(cached) }]
+                  : []),
               ]
             : system,
           messages,
@@ -422,11 +428,14 @@ export function createProvider(providerId, key, options = {}) {
         if (usage)
           yield {
             usage: {
+              // Claude reports cached prompt tokens apart from the rest.
               input:
-                usage.input_tokens ||
-                usage.prompt_tokens ||
-                usage.promptTokenCount ||
-                0,
+                (usage.input_tokens ||
+                  usage.prompt_tokens ||
+                  usage.promptTokenCount ||
+                  0) +
+                (usage.cache_read_input_tokens || 0) +
+                (usage.cache_creation_input_tokens || 0),
               // Gemini reports thinking tokens apart from the answer; both are billed.
               output:
                 (usage.output_tokens ||

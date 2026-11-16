@@ -694,3 +694,53 @@ test("practice mode checks one answer at a time and never sends the key with the
     await h.stop();
   }
 });
+
+test("card AI reads the part of a video transcript about the card, not all of it", async () => {
+  const h = await start(4572);
+  try {
+    const { user, notebook, ai, generate } = await learner(h, "ana");
+    const filler = Array.from(
+      { length: 300 },
+      (_, i) =>
+        `[${i}:00] ` +
+        "The lecturer talks about rivers, valleys and weather patterns. ".repeat(4),
+    );
+    filler[200] =
+      "[200:00] Mitochondria transfer energy from nutrients into ATP during respiration.";
+    const transcript = `# Cell lecture\n\nSource: https://www.youtube.com/watch?v=abcdefghijk\nTranscript language: en\n\n## Transcript\n\n${filler.join("\n\n")}\n`;
+    const video = (
+      await user.call(`notebooks/${notebook}/sources`, "POST", {
+        name: "lecture.md",
+        base64: Buffer.from(transcript).toString("base64"),
+      })
+    ).data.id;
+    for (let i = 0; i < 100; i++) {
+      if ((await user.call("sources/" + video)).data.source.status === "ready")
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    // The deck is built from the whole transcript, which its cards then cite.
+    const deck = (await generate({ kind: "flashcards", sourceIds: [video] }))
+      .data;
+    assert.ok(h.calls.at(-1).system.length > transcript.length * 0.9);
+    const card = deck.cards[0];
+
+    assert.equal(
+      (await user.call(`cards/${card.id}/explain`, "POST", ai)).status,
+      200,
+    );
+    const explain = h.calls.at(-1).system;
+    assert.ok(explain.length < 9000, `explain sent ${explain.length} characters`);
+    assert.match(explain, /Mitochondria transfer energy from nutrients/);
+
+    assert.equal(
+      (await user.call(`cards/${card.id}/regenerate`, "POST", ai)).status,
+      200,
+    );
+    const rewrite = h.calls.at(-1).system;
+    assert.ok(rewrite.length < 9000, `rewrite sent ${rewrite.length} characters`);
+    assert.match(rewrite, /Mitochondria transfer energy from nutrients/);
+  } finally {
+    await h.stop();
+  }
+});

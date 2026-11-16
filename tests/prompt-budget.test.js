@@ -6,6 +6,8 @@ import {
   groundedPrompt,
   retrieve,
   evidenceText,
+  focusPassage,
+  stablePrefix,
 } from "../server/retrieval.js";
 import { catalog, createProvider, ollamaLibrary } from "../server/providers.js";
 import { generationPrompt } from "../server/learning.js";
@@ -106,6 +108,8 @@ test("chat prompt teaches in study mode with highlighted key points", () => {
   assert.match(chat, /ONE quick check question/);
   assert.match(chat, /==double equals==/);
   assert.match(chat, /\*\*bold\*\*/);
+  // Output tokens cost the most: a simple question gets a short answer.
+  assert.match(chat, /Match the length to the question/);
   // Structured generations (JSON) do not carry the chat formatting rules.
   assert.doesNotMatch(groundedPrompt([], {}, "strict"), /==double equals==/);
 });
@@ -151,6 +155,8 @@ test("a generation prompt carries only the rules for its own kind", () => {
   });
   assert.match(flashcards, /Generate a flashcards/);
   assert.match(flashcards, /Return ONLY valid JSON/);
+  // Indented JSON spends output tokens on spaces.
+  assert.match(flashcards, /compact with no indentation/);
   assert.doesNotMatch(flashcards, /slide|two-host|infographic|mind map/i);
   const slides = generationPrompt({
     kind: "slides",
@@ -200,4 +206,50 @@ test("Mistral is removed and Ollama local and cloud are offered", async () => {
   await cloud.listModels();
   assert.equal(calls.at(-1).init.headers.Authorization, "Bearer secret-key");
   await assert.rejects(cloud.pullModel("qwen3:8b"));
+});
+
+const transcript =
+  "# Cell lecture\n\nSource: https://www.youtube.com/watch?v=abcdefghijk\n\n## Transcript\n\n" +
+  Array.from({ length: 200 }, (_, i) =>
+    i === 150
+      ? "[150:00] Mitochondria release energy as ATP."
+      : `[${i}:00] ` +
+        "The lecturer talks about rivers and valleys. ".repeat(5),
+  ).join("\n\n");
+
+test("a long passage is cut to the paragraphs about the query", () => {
+  const focused = focusPassage(transcript, "What do mitochondria release? ATP");
+  assert.equal(focused, "[150:00] Mitochondria release energy as ATP.");
+  // Nothing matches: the opening, never the whole passage.
+  const opening = focusPassage(transcript, "quantum chromodynamics");
+  assert.equal(opening, transcript.slice(0, 3000));
+  // Short passages are left alone.
+  assert.equal(focusPassage(para, "anything"), para);
+});
+
+test("the stable part of a chat prompt ends after the whole transcripts", () => {
+  const video = {
+    id: 1,
+    sourceId: "v",
+    section: 1,
+    title: "Cell lecture",
+    text: transcript,
+  };
+  const excerpt = (text) => ({
+    id: 2,
+    sourceId: "b",
+    section: 4,
+    title: "Biology.pdf",
+    text,
+  });
+  const prompts = ["about enzymes", "about membranes"].map((text) => {
+    const chunks = [video, excerpt(text)];
+    const system = groundedPrompt(chunks, {}, "strict", true);
+    return system.slice(0, stablePrefix(chunks, {}, "strict"));
+  });
+  // The same bytes for both questions, ending with the transcript.
+  assert.equal(prompts[0], prompts[1]);
+  assert.ok(prompts[0].endsWith("rivers and valleys."));
+  // Excerpts chosen by keyword change with every question: nothing to cache.
+  assert.equal(stablePrefix([excerpt("about enzymes")], {}, "strict"), 0);
 });
