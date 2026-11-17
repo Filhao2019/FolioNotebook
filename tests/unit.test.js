@@ -130,12 +130,42 @@ test("quiz scoring covers multiple select, fill in the blank and short answer", 
   // One extra option makes a multiple-select answer wrong.
   assert.equal(scoreQuiz(q, [[0, 2, 3], null, null]).correct, 0);
 });
+test("typed quiz answers preserve signs, operators and decimal notation", () => {
+  for (const type of ["blank", "short"]) {
+    const grade = (expected, given) =>
+      scoreQuiz([{ type, accept: [expected] }], [given]).correct;
+    for (const answer of ["3", "+3", "−3.5", "-35"])
+      assert.equal(grade("-3", answer), 0, `${type}: -3 versus ${answer}`);
+    for (const [expected, given] of [
+      ["-3", " -3. "],
+      ["-3", "−3"],
+      ["3.5", "3.5"],
+      ["x+1", "x+1"],
+      ["São Paulo", " sao paulo! "],
+      ["ATP", "atp."],
+    ])
+      assert.equal(grade(expected, given), 1, `${type}: ${expected}`);
+    for (const [expected, given] of [
+      ["3.5", "3 5"],
+      ["x+1", "x-1"],
+      ["1/2", "1 2"],
+    ])
+      assert.equal(grade(expected, given), 0, `${type}: ${expected}`);
+  }
+});
+
 test("a quiz question must carry the answer its type needs", () => {
   const quiz = (question) =>
     JSON.stringify({
       title: "Q",
       questions: [
-        { question: "Q?", explanation: "E", topic: "T", refs: [1], ...question },
+        {
+          question: "Q?",
+          explanation: "E",
+          topic: "T",
+          refs: [1],
+          ...question,
+        },
       ],
     });
   const type = (question) =>

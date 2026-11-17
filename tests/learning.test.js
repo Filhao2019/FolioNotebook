@@ -99,7 +99,7 @@ async function start(port, options = {}) {
     origin,
     ...options,
     providerFactory: (provider) => {
-      const fixture = fixtureProvider(provider);
+      const fixture = (options.providerFactory || fixtureProvider)(provider);
       const chat = fixture.chat;
       fixture.chat = (request) => {
         calls.push(request);
@@ -791,6 +791,68 @@ test("a quiz can mix multiple select, fill in the blank and short answer", async
       (await generate({ kind: "quiz", questionTypes: ["essay"] })).status,
       400,
     );
+  } finally {
+    await h.stop();
+  }
+});
+
+test("signed typed answers agree across practice, attempts and missed cards", async () => {
+  const h = await start(4575, {
+    providerFactory: (provider) => ({
+      ...fixtureProvider(provider),
+      chat: async () => ({
+        usage: { input: 20, output: 20 },
+        text: JSON.stringify({
+          title: "Signed answers",
+          questions: ["short", "blank"].map((type) => ({
+            type,
+            question:
+              type === "short"
+                ? "What is negative three?"
+                : "Fill ____ with negative three.",
+            accept: ["-3"],
+            explanation: "The value is negative three.",
+            topic: "Signed numbers",
+            refs: [1],
+          })),
+        }),
+      }),
+    }),
+  });
+  try {
+    const { user, generate } = await learner(h, "ana");
+    const made = await generate({
+      kind: "quiz",
+      questionTypes: ["short", "blank"],
+    });
+    assert.equal(made.status, 201);
+    const path = `artifacts/${made.data.id}`;
+    for (const index of [0, 1]) {
+      for (const answer of ["3", "+3"])
+        assert.equal(
+          (await user.call(path + "/check", "POST", { index, answer })).data
+            .correct,
+          false,
+        );
+      assert.equal(
+        (await user.call(path + "/check", "POST", { index, answer: "−3" })).data
+          .correct,
+        true,
+      );
+    }
+    const attempt = await user.call(path + "/attempt", "POST", {
+      answers: ["3", "-3"],
+    });
+    assert.equal(attempt.status, 200);
+    assert.equal(attempt.data.correct, 1);
+    const cards = await user.call(path + "/flashcards", "POST", {
+      attemptId: attempt.data.id,
+    });
+    assert.equal(cards.status, 201);
+    assert.equal(cards.data.count, 1);
+    const deck = (await user.call("artifacts/" + cards.data.id)).data;
+    assert.equal(deck.cards[0].back, "-3");
+    assert.equal(deck.cards[0].front, "What is negative three?");
   } finally {
     await h.stop();
   }

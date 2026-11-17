@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { createApp } from "../server/app.js";
 import {
   fetchWebSource,
@@ -54,7 +57,7 @@ test("web addresses are validated before any request", async () => {
   await assert.rejects(fetchWebSource("http://192.168.0.1/"), { status: 400 });
 });
 
-test("HTML is reduced to readable text without scripts or page chrome", () => {
+test("HTML is reduced to readable text without scripts or page chrome", async () => {
   const html = `<!doctype html><html><head><title>Cell &amp; energy</title>
     <style>p{color:red}</style><script>alert("x")</script></head><body>
     <nav><a href="/">Home menu</a></nav>
@@ -63,7 +66,7 @@ test("HTML is reduced to readable text without scripts or page chrome", () => {
     <ul><li>Inner membrane</li><li>Matrix</li></ul>
     <p>The inner membrane is folded into cristae, which increases the surface area available for the reactions.</p>
     </article><footer>Copyright footer text</footer></body></html>`;
-  const page = htmlToMarkdown(html, "https://example.com/cells");
+  const page = await htmlToMarkdown(html, "https://example.com/cells");
   assert.equal(page.title, "Cell & energy");
   assert.match(
     page.markdown,
@@ -73,7 +76,7 @@ test("HTML is reduced to readable text without scripts or page chrome", () => {
   assert.match(page.markdown, /They make ATP, which powers the cell's work/);
   assert.match(page.markdown, /- Inner membrane\n- Matrix/);
   assert.doesNotMatch(page.markdown, /alert|color:red|Home menu|Copyright/);
-  assert.throws(
+  await assert.rejects(
     () => htmlToMarkdown("<html><body><div id=app></div></body></html>"),
     {
       status: 422,
@@ -81,24 +84,40 @@ test("HTML is reduced to readable text without scripts or page chrome", () => {
   );
 });
 
-test("responses map to supported source formats", () => {
+test("malformed HTML cannot block health requests or outlive conversion limits", async () => {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [
+      fileURLToPath(
+        new URL("./helpers/html-conversion-probe.js", import.meta.url),
+      ),
+    ],
+    { timeout: 20000 },
+  );
+  assert.match(
+    stdout,
+    /5 malformed inputs bounded; health responsive; normal import recovered/,
+  );
+});
+
+test("responses map to supported source formats", async () => {
   const url = new URL("https://example.com/files/Chapter%201.pdf");
-  const pdf = toSource(url, "application/pdf", Buffer.from("%PDF-1.7 x"));
+  const pdf = await toSource(url, "application/pdf", Buffer.from("%PDF-1.7 x"));
   assert.equal(pdf.name, "Chapter 1.pdf");
-  const csv = toSource(
+  const csv = await toSource(
     new URL("https://example.com/data"),
     "text/csv; charset=utf-8",
     Buffer.from("a,b\n1,2\n"),
   );
   assert.equal(csv.name, "data.csv");
-  const latin = toSource(
+  const latin = await toSource(
     new URL("https://example.com/nota.txt"),
     "text/plain; charset=iso-8859-1",
     Buffer.from([0x63, 0x61, 0x66, 0xe9]),
   );
   assert.equal(latin.name, "nota.txt");
   assert.equal(latin.buffer.toString(), "café");
-  assert.throws(
+  await assert.rejects(
     () =>
       toSource(
         new URL("https://example.com/a.png"),

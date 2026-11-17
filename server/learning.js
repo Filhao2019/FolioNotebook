@@ -371,13 +371,16 @@ export function weaknesses(db, { notebookId, user }) {
 export const weakConcepts = (db, notebookId) => [
   ...new Set(weaknesses(db, { notebookId }).map((x) => x.label)),
 ];
-// Typed answers match whatever the case, accents or punctuation.
+// Typed answers ignore case, accents and trailing prose punctuation, but keep mathematical notation.
 const plain = (s) =>
   String(s)
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/−/g, "-")
+    .trim()
+    .replace(/[.!?,;:]+$/u, "")
+    .replace(/\s+/g, " ")
     .trim();
 /**
  * Whether one answer is right: an option index, a list of option indexes, or
