@@ -4,21 +4,37 @@ import { sourceText } from "../fixtures.js";
 
 const origin = "http://127.0.0.1:4391";
 
-test("page headings and navigation align to the left across window sizes", async ({ page }) => {
+test("page headings and navigation align to the left across window sizes", async ({
+  page,
+}) => {
   await seed(page);
+  const pages = [
+    ["shared", "Shared with me"],
+    ["groups", "Groups"],
+    ["sessions", "Study sessions"],
+  ];
   for (const width of [390, 768, 1024, 1440, 1920, 2133]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const route of ["shared", "groups", "sessions"]) {
+    for (const [route, name] of pages) {
       await page.goto("/#" + route);
-      await expect(page.locator("main h1")).toBeVisible();
-      const heading = await page.locator("main h1").boundingBox();
-      expect(heading.x).toBeLessThanOrEqual(40);
+      const heading = page.getByRole("heading", { level: 1, name, exact: true });
+      await expect
+        .poll(async () => (await heading.boundingBox())?.x ?? Infinity)
+        .toBeLessThanOrEqual(40);
       await expect(page.locator("body")).toHaveJSProperty("scrollWidth", width);
     }
     if (width >= 1440) {
-      const brand = await page.getByRole("link", { name: "Folio home" }).boundingBox();
-      const nav = await page.getByRole("navigation", { name: "Main navigation" }).boundingBox();
-      expect(nav.x - brand.x - brand.width).toBeLessThanOrEqual(16);
+      const brand = page.getByRole("link", { name: "Folio home" });
+      const nav = page.getByRole("navigation", { name: "Main navigation" });
+      await expect
+        .poll(async () => {
+          const [logo, links] = await Promise.all([
+            brand.boundingBox(),
+            nav.boundingBox(),
+          ]);
+          return logo && links ? links.x - logo.x - logo.width : Infinity;
+        })
+        .toBeLessThanOrEqual(16);
     }
   }
 });
