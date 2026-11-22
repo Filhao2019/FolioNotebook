@@ -49,17 +49,27 @@ jobs:
       - run: pnpm exec electron-builder ${{ matrix.target }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - name: Verify packaged macOS signatures
+      - name: Verify packaged macOS signatures and image decoder
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
           version=$(node -p 'require("./package.json").version')
+          if ! arch -x86_64 /usr/bin/true; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
           for arch in arm64 x64; do
             extracted=$(mktemp -d)
             ditto -x -k "dist/Folio-${version}-mac-${arch}.zip" "$extracted"
-            codesign --verify --deep --strict --verbose=2 "$extracted/Folio.app"
-            test -f "$extracted/Folio.app/Contents/Resources/app/node_modules/@img/sharp-darwin-$arch/lib/sharp-darwin-$arch.node"
+            app="$extracted/Folio.app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/Folio" -e '
+              const assert = require("node:assert/strict");
+              const { createRequire } = require("node:module");
+              assert.equal(process.arch, process.argv[2]);
+              const sharp = createRequire(process.argv[1])("sharp");
+              assert.ok(sharp.versions.vips);
+            ' "$app/Contents/Resources/app/package.json" "$arch"
           done
       - if: startsWith(github.ref, 'refs/tags/')
         run: |
