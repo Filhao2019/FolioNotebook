@@ -125,9 +125,9 @@ test("flashcards: create, flip, explain, ask, navigate, reduced motion; quiz con
     count = page.locator(".fc-count");
   await expect(count).toHaveText("Card 1 of 2");
   // The study screens use their own font; it must really load, not fall back.
-  expect((await page.request.get("/fonts/figtree.ttf")).status()).toBe(200);
+  expect((await page.request.get("/fonts/google-sans-flex.ttf")).status()).toBe(200);
   await expect
-    .poll(() => page.evaluate(() => document.fonts.check("16px Figtree")))
+    .poll(() => page.evaluate(() => document.fonts.check('350 16px "Google Sans Flex"')))
     .toBe(true);
   await expect(card).toHaveAttribute("aria-pressed", "false");
   // The flip is a scripted animation; the class swap itself is instant.

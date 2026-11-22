@@ -43,6 +43,8 @@ export function openDatabase(directory) {
     db.exec("ALTER TABLE usage ADD COLUMN estimated_cost REAL");
   // Sharing, groups and communities (additive; see server/social.js).
   db.exec(`
+  CREATE TABLE IF NOT EXISTS avatars(user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,version TEXT NOT NULL,image BLOB NOT NULL);
+  CREATE TABLE IF NOT EXISTS user_blocks(blocker_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,PRIMARY KEY(blocker_id,blocked_id));
   CREATE TABLE IF NOT EXISTS notebook_shares(notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,created TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(notebook_id,user_id));
   CREATE TABLE IF NOT EXISTS study_groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,editable INTEGER NOT NULL DEFAULT 0,created TEXT DEFAULT CURRENT_TIMESTAMP);
   CREATE TABLE IF NOT EXISTS group_members(group_id TEXT NOT NULL REFERENCES study_groups(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,created TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(group_id,user_id));

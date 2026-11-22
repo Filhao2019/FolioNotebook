@@ -1,3 +1,8 @@
+# Both Mac installers are built by one runner and need their own Sharp binary.
+supportedArchitectures:
+  os: [current]
+  cpu: [current, arm64, x64]
+
 allowBuilds:
   electron: true
   electron-winstaller: false

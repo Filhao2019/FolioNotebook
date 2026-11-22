@@ -21,6 +21,11 @@ const email = z
 
 /** @typedef {"owner" | "edit" | "view"} Access */
 
+const blocked = (db, first, second) => Boolean(db.get(
+  "SELECT 1 FROM user_blocks WHERE (blocker_id=? AND blocked_id=?) OR (blocker_id=? AND blocked_id=?)",
+  first, second, second, first,
+));
+
 /**
  * @param {any} db
  * @param {string} notebookId
@@ -34,6 +39,7 @@ export function notebookAccess(db, notebookId, userId) {
   );
   if (!notebook) return null;
   if (notebook.user_id === userId) return "owner";
+  if (blocked(db, userId, notebook.user_id)) return null;
   const viaGroup = db.get(
     "SELECT MAX(g.editable) AS editable FROM group_notebooks gn JOIN study_groups g ON g.id=gn.group_id JOIN group_members m ON m.group_id=g.id WHERE gn.notebook_id=? AND m.user_id=?",
     notebookId,
@@ -107,6 +113,7 @@ export function socialRoutes({ db, json, body, audit }) {
     settings: JSON.parse(n.settings || "{}"),
     updated: n.updated,
     owner: n.owner,
+    ownerId: n.user_id,
     access: notebookAccess(db, n.id, user),
   });
   const membership = (groupId, user) => {
@@ -115,7 +122,7 @@ export function socialRoutes({ db, json, body, audit }) {
       groupId,
       user,
     );
-    assert(group, 404, "This group is unavailable.");
+    assert(group && !blocked(db, user, group.owner_id), 404, "This group is unavailable.");
     return { group, owner: group.owner_id === user };
   };
   const community = (id) => {
@@ -128,6 +135,31 @@ export function socialRoutes({ db, json, body, audit }) {
   };
 
   return async function handle(req, res, path, method, user, url) {
+    if (path[0] === "blocks") {
+      if (path.length === 1 && method === "GET")
+        return send(res, db.all(
+          "SELECT u.id,u.name FROM user_blocks b JOIN users u ON u.id=b.blocked_id WHERE b.blocker_id=? ORDER BY u.name,u.id",
+          user,
+        ));
+      if (path.length === 2 && method === "PUT") {
+        const target = idSchema.parse(path[1]);
+        assert(target !== user, 400, "You cannot block your own account.");
+        assert(db.get("SELECT 1 FROM users WHERE id=?", target), 404, "This account is unavailable.");
+        db.transaction(() => {
+          db.run("INSERT OR IGNORE INTO user_blocks(blocker_id,blocked_id) VALUES(?,?)", user, target);
+          db.run(
+            `DELETE FROM notebook_shares WHERE (user_id=? AND notebook_id IN (SELECT id FROM notebooks WHERE user_id=?))
+              OR (user_id=? AND notebook_id IN (SELECT id FROM notebooks WHERE user_id=?))`,
+            user, target, target, user,
+          );
+        });
+        return send(res, { ok: true });
+      }
+      if (path.length === 2 && method === "DELETE") {
+        db.run("DELETE FROM user_blocks WHERE blocker_id=? AND blocked_id=?", user, idSchema.parse(path[1]));
+        return send(res, { ok: true });
+      }
+    }
     // ---- Direct read-only shares ------------------------------------
     if (path[0] === "notebooks" && path[2] === "shares") {
       const access = notebookAccess(db, path[1], user);
@@ -144,6 +176,7 @@ export function socialRoutes({ db, json, body, audit }) {
         const input = z.object({ email }).parse(await body(req));
         const target = account(input.email);
         assert(target.id !== user, 400, "You already own this notebook.");
+        assert(!blocked(db, user, target.id), 403, "Sharing with this account is unavailable.");
         db.run(
           "INSERT OR IGNORE INTO notebook_shares(notebook_id,user_id) VALUES(?,?)",
           path[1],
@@ -174,7 +207,7 @@ export function socialRoutes({ db, json, body, audit }) {
       );
       return send(
         res,
-        rows.map((n) => ({
+        rows.filter((n) => !blocked(db, user, n.user_id)).map((n) => ({
           ...card(n, user),
           groups: db
             .all(
@@ -201,6 +234,7 @@ export function socialRoutes({ db, json, body, audit }) {
                WHERE m.user_id=? ORDER BY g.created`,
               user,
             )
+            .filter((g) => !blocked(db, user, g.owner_id))
             .map((g) => ({
               id: g.id,
               name: g.name,
@@ -254,12 +288,13 @@ export function socialRoutes({ db, json, body, audit }) {
             "SELECT u.id AS userId,u.name,u.email,CASE WHEN u.id=? THEN 'owner' ELSE 'member' END AS role FROM group_members m JOIN users u ON u.id=m.user_id WHERE m.group_id=? ORDER BY m.created",
             group.owner_id,
             group.id,
-          ),
+          ).filter((m) => !blocked(db, user, m.userId)),
           notebooks: db
             .all(
               "SELECT n.*,u.name AS owner FROM group_notebooks gn JOIN notebooks n ON n.id=gn.notebook_id JOIN users u ON u.id=n.user_id WHERE gn.group_id=? ORDER BY gn.created DESC",
               group.id,
             )
+            .filter((n) => !blocked(db, user, n.user_id))
             .map((n) => ({ ...card(n, user), mine: n.user_id === user })),
         });
       if (path.length === 2 && method === "PATCH") {
@@ -287,6 +322,7 @@ export function socialRoutes({ db, json, body, audit }) {
         const target = account(
           z.object({ email }).parse(await body(req)).email,
         );
+        assert(!blocked(db, user, target.id), 403, "Inviting this account is unavailable.");
         assert(
           db.get(
             "SELECT COUNT(*) AS count FROM group_members WHERE group_id=?",
@@ -374,11 +410,14 @@ export function socialRoutes({ db, json, body, audit }) {
                 EXISTS(SELECT 1 FROM community_followers WHERE community_id=c.id AND user_id=?) AS following
                FROM communities c JOIN users u ON u.id=c.president_id
                WHERE (?='' OR c.name LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')
+               AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id=? AND b.blocked_id=c.president_id) OR (b.blocked_id=? AND b.blocker_id=c.president_id))
                ORDER BY following DESC, followers DESC, c.created DESC LIMIT 100`,
               user,
               q,
               `%${q.replace(/[\\%_]/g, "\\$&")}%`,
               `%${q.replace(/[\\%_]/g, "\\$&")}%`,
+              user,
+              user,
             )
             .map((c) => ({
               id: c.id,
@@ -419,6 +458,7 @@ export function socialRoutes({ db, json, body, audit }) {
         return send(res, { id }, 201);
       }
       const c = community(path[1]);
+      assert(!blocked(db, user, c.president_id), 404, "This community is unavailable.");
       const president = c.president_id === user;
       if (path.length === 2 && method === "GET")
         return send(res, {
@@ -427,6 +467,7 @@ export function socialRoutes({ db, json, body, audit }) {
             name: c.name,
             description: c.description,
             president: c.president,
+            presidentId: c.president_id,
           },
           isPresident: president,
           following: Boolean(
@@ -453,6 +494,7 @@ export function socialRoutes({ db, json, body, audit }) {
               user,
               c.id,
             )
+            .filter((n) => !blocked(db, user, n.user_id))
             .map((n) => ({
               ...card(n, user),
               likes: n.likes,
@@ -570,6 +612,7 @@ export function socialRoutes({ db, json, body, audit }) {
              WHERE r.user_id=? AND r.kind='follow' ORDER BY n.updated DESC`,
             user,
           )
+          .filter((n) => !blocked(db, user, n.user_id))
           .map((n) => ({
             ...card(n, user),
             communityId: n.communityId,

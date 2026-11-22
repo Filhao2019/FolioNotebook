@@ -46,6 +46,12 @@ The installed app starts Folio's server privately on 127.0.0.1 and keeps data in
 
 Sharing, groups and communities work between accounts on the **same Folio server**. To use them with friends, host one Folio server over HTTPS (see [operations](docs/OPERATIONS.md)) and have everyone choose **Folio → Server settings… → A shared Folio server** in the app.
 
+## Profile pictures and blocking
+
+Choose a still JPEG, PNG or WebP from the account menu. Both sides must be under 3000 pixels and the file must be smaller than 1 MiB. The picture is private to your account. Server operators can reject specific images before saving by configuring `FOLIO_AVATAR_BLOCKED_SHA256` with comma-separated SHA-256 hashes.
+
+Use **Block** on a shared notebook, group member or community page. Blocking removes direct shares between the two accounts and prevents new shares and invitations. Use **Blocked accounts** in Settings to unblock someone.
+
 ## Google Drive and Reddit
 
 ### Connect Google Drive
@@ -53,7 +59,7 @@ Sharing, groups and communities work between accounts on the **same Folio server
 1. In a Google Cloud project, enable the **Google Drive API** and **Google Docs API**. Set up the OAuth consent screen and create an OAuth client of type **Desktop app**. If the consent screen is in Testing, add your Google account as a test user. [Google desktop OAuth setup](https://developers.google.com/identity/protocols/oauth2/native-app)
 2. Set **GOOGLE_DRIVE_CLIENT_ID** and **GOOGLE_DRIVE_CLIENT_SECRET** in Folio's local **.env** and restart Folio. Use the project folder for a source checkout. The installed app uses the **Folio** app-data folder, such as **%APPDATA%\Folio** on Windows or **~/Library/Application Support/Folio** on macOS.
 3. In **AI connections → Google Drive**, select **Connect Google Drive**, open Google sign-in, and grant access in your browser. Return to Folio and select **Check connection**. Folio encrypts the refresh token in its local database.
-4. In a notebook, select **Google Drive** under Chat to draft a document from your instructions. Give it a title to create a Google Doc in My Drive, or paste a Google Docs link to append text or replace one exact passage in the selected tab. Review the proposed text and select **Save to Google Drive**.
+4. In a notebook, open **Connected apps** beside the chat input and select **Google Drive** to draft a document from your instructions. Give it a title to create a Google Doc in My Drive, or paste a Google Docs link to append text or replace one exact passage in the selected tab. Review the proposed text and select **Save to Google Drive**.
 
 Folio requests permission to read and edit Google Docs you can access and to manage Drive files it creates. A draft sends relevant selected notebook passages and up to 12,000 characters from the linked document to your active AI provider. Every write requires approval in Folio. On a shared Folio server the Drive connection is unavailable. Tasks involving other Drive file formats or folders are outside this release.
 
