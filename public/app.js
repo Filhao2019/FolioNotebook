@@ -34,6 +34,24 @@ const pt = {
   Settings: "Configurações",
   "New notebook": "Novo caderno",
   "Sign out": "Sair",
+  Study: "Estudo",
+  Account: "Conta",
+  "Change profile picture": "Alterar foto de perfil",
+  "Remove profile picture": "Remover foto de perfil",
+  "Choose a picture": "Escolher uma foto",
+  "Blocked accounts": "Contas bloqueadas",
+  "Block account": "Bloquear conta",
+  Block: "Bloquear",
+  Unblock: "Desbloquear",
+  "Connected apps": "Aplicativos conectados",
+  "Turn off web links": "Desativar links da web",
+  "Turn on web links": "Ativar links da web",
+  "Connect an app": "Conectar um aplicativo",
+  "Customize notebook": "Personalizar caderno",
+  "Copy notebook": "Copiar caderno",
+  "Notebook activity": "Atividade do caderno",
+  Longer: "Mais longa",
+  Shorter: "Mais curta",
   "Your learning, connected.": "Seu aprendizado, conectado.",
   "A place to understand.": "Um lugar para compreender.",
   "Create your account": "Crie sua conta",
@@ -684,6 +702,7 @@ const paths = {
   shuffle: "M16 3h5v5 M4 20 21 3 M21 16v5h-5 M15 15l6 6 M4 4l5 5",
   flag: "M5 21V4 M5 4h13l-2.5 4.5L18 13H5",
   help: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20 M9.6 9.2a2.5 2.5 0 1 1 3.6 2.2c-.8.5-1.2 1-1.2 1.9 M12 17h.01",
+  gear: "M9 2h6l.5 3 1.5.9 2.5-.8 3 5.2-1.9 1.7v1.8l1.9 1.7-3 5.2-2.5-.8-1.5.9L15 23H9l-.5-2.7-1.5-.9-2.5.8-3-5.2 1.9-1.7v-1.8L1.5 10.3l3-5.2 2.5.8 1.5-.9z M12 9a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7",
   keyboard: "M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M8 14h8",
 };
 function icon(name) {
@@ -1041,158 +1060,255 @@ async function route() {
     render();
   }
 }
-function rail() {
-  const navItems = [
-    ["dashboard", "Dashboard", "home"],
-    ["notebooks", "My notebooks", "book"],
+function topbar(filters) {
+  const study = [
     ["activity", "Recent activity", "clock"],
     ["sessions", "Study sessions", "cards"],
     ["flashcards", "Flashcards", "cards"],
     ["quizzes", "Quizzes", "quiz"],
     ["progress", "Learning progress", "chart"],
     ["graph", "Knowledge graph", "graph"],
-    ["shared", "Shared with me", "share"],
-    ["groups", "Groups", "users"],
-    ["communities", "Communities", "globe"],
   ];
-  const navEl = el(
-    "nav",
-    { "aria-label": "Main navigation" },
-    navItems.map(([page, label, glyph]) =>
-      el(
-        "button",
-        {
-          type: "button",
-          class:
-            "nav-button " +
-            (state.page === page ||
-            (state.page === "notebook" && page === "notebooks") ||
-            (state.page === "group" && page === "groups") ||
-            (state.page === "community" && page === "communities")
-              ? "active"
-              : ""),
-          "aria-current":
-            state.page === page ||
-            (state.page === "notebook" && page === "notebooks")
-              ? "page"
-              : null,
-          title: t(label),
-          onClick: () => nav(page),
-        },
-        icon(glyph),
-        el("span", {}, t(label)),
-      ),
-    ),
+  const studyButton = menuButton(
+    "Study",
+    study.map(([page, title, glyph]) => [title, glyph, () => nav(page)]),
+    "cards",
+  );
+  studyButton.append(el("span", {}, t("Study")));
+  studyButton.classList.toggle(
+    "active",
+    study.some(([page]) => page === state.page),
   );
   return el(
-    "aside",
-    { class: "rail" },
+    "header",
+    { class: "topbar folio-topbar" },
     el(
       "a",
-      { href: "#dashboard", class: "brand", "aria-label": "Folio home" },
+      { href: "#dashboard", class: "brand", "aria-label": t("Folio home") },
       el("span", { class: "brand-mark" }, icon("book")),
       el("span", {}, "folio"),
     ),
-    button("New notebook", newNotebook, "primary full", "plus"),
-    navEl,
     el(
       "nav",
-      { class: "nav-secondary", "aria-label": "Account navigation" },
+      { class: "folio-nav", "aria-label": t("Main navigation") },
       [
-        ["connections", "AI connections", "plug"],
-        ["settings", "Settings", "settings"],
-      ].map(([page, label, glyph]) =>
+        ["dashboard", "Dashboard"],
+        ["notebooks", "My notebooks"],
+        ["shared", "Shared with me"],
+        ["groups", "Groups", "group"],
+        ["communities", "Communities", "community"],
+      ].map(([page, label, detail]) =>
         el(
-          "button",
+          "a",
           {
-            class: "nav-button " + (state.page === page ? "active" : ""),
-            title: t(label),
-            onClick: () => nav(page),
+            href: "#" + page,
+            "aria-current":
+              state.page === page || state.page === detail ? "page" : null,
           },
-          icon(glyph),
-          el("span", {}, t(label)),
+          t(label),
         ),
       ),
+      studyButton,
     ),
-    el(
-      "div",
-      { class: "rail-bottom" },
-      el(
-        "div",
-        { class: "row" },
-        el(
-          "span",
-          { class: "avatar" },
-          state.user.name.slice(0, 1).toUpperCase(),
-        ),
-        el(
-          "div",
-          { class: "user-info grow" },
-          el("strong", { class: "small" }, state.user.name),
-          el(
-            "div",
-            { class: "muted small" },
-            state.user.guest ? "Guest workspace" : "Personal workspace",
-          ),
-        ),
-        iconButton("logout", "Sign out", () =>
-          action(async () => {
-            await api("auth/logout", { method: "POST", data: {} });
-            location.hash = "";
-            location.reload();
-          }),
-        ),
-      ),
-    ),
-  );
-}
-function topbar() {
-  return el(
-    "header",
-    { class: "topbar" },
-    el(
-      "div",
-      { class: "breadcrumb" },
-      state.page === "notebook"
-        ? el("a", { href: "#notebooks" }, t("My notebooks"))
-        : t(
-            {
-              dashboard: "Your learning, connected.",
-              notebooks: "My notebooks",
-              connections: "AI connections",
-              settings: "Settings",
-              activity: "Recent activity",
-              sessions: "Study sessions",
-              flashcards: "Flashcards",
-              quizzes: "Quizzes",
-              progress: "Learning progress",
-              graph: "Knowledge graph",
-              shared: "Shared with me",
-              groups: "Groups",
-              group: "Groups",
-              communities: "Communities",
-              community: "Communities",
-            }[state.page] || "Dashboard",
-          ),
-    ),
+    filters,
     el(
       "div",
       { class: "top-actions" },
       newUpdateButton("small"),
-      el("span", { class: "badge" }, icon("book"), t("Source-grounded")),
-      iconButton("settings", "Settings", () => nav("settings")),
-      iconButton("sun", "Theme", () =>
-        action(async () => {
-          const theme = state.user.settings.theme === "dark" ? "light" : "dark";
-          await api("me", { method: "PATCH", data: { theme } });
-          state.user.settings.theme = theme;
-          setTheme(theme);
-        }),
-      ),
-      button("AI connections", () => nav("connections"), "small", "plug"),
+      button("New notebook", newNotebook, "primary folio-create", "plus"),
+      accountControls(),
     ),
   );
 }
+
+function avatarContent() {
+  const { name, avatarVersion } = state.user;
+  return avatarVersion
+    ? el("img", {
+        src: "/api/me/avatar?v=" + encodeURIComponent(avatarVersion),
+        alt: "",
+      })
+    : Array.from(name)[0]?.toLocaleUpperCase(state.locale) || "F";
+}
+
+function accountControls() {
+  const account = el(
+    "button",
+    {
+      type: "button",
+      class: "gn-avatar",
+      "aria-label": t("Account menu"),
+      "aria-haspopup": "menu",
+      "aria-expanded": "false",
+      onClick: () =>
+        openMenu(
+          account,
+          [
+            ["Change profile picture", "edit", profilePictureModal],
+            state.user.avatarVersion && [
+              "Remove profile picture",
+              "trash",
+              () => saveAvatar(),
+            ],
+            ["Blocked accounts", "eye", blockedAccountsModal],
+            [
+              state.user.settings.theme === "dark"
+                ? "Light theme"
+                : "Dark theme",
+              "sun",
+              toggleTheme,
+            ],
+            [
+              "Sign out",
+              "logout",
+              () =>
+                action(async () => {
+                  await api("auth/logout", { method: "POST", data: {} });
+                  location.hash = "";
+                  location.reload();
+                }),
+            ],
+          ],
+          el(
+            "div",
+            { class: "folio-account-card", role: "presentation" },
+            el(
+              "span",
+              { class: "gn-avatar", "aria-hidden": "true" },
+              avatarContent(),
+            ),
+            el(
+              "div",
+              {},
+              el("strong", {}, state.user.name),
+              el(
+                "p",
+                { class: "muted small" },
+                state.user.email || t("Guest workspace"),
+              ),
+            ),
+          ),
+        ),
+    },
+    avatarContent(),
+  );
+  const settings = iconButton("gear", "Settings", () => nav("settings"));
+  if (state.page === "settings") settings.setAttribute("aria-current", "page");
+  const connections = iconButton("plug", "AI connections", () =>
+    nav("connections"),
+  );
+  if (state.page === "connections")
+    connections.setAttribute("aria-current", "page");
+  return el(
+    "div",
+    { class: "folio-account-actions" },
+    settings,
+    connections,
+    account,
+  );
+}
+
+function profilePictureModal() {
+  const file = el("input", {
+    type: "file",
+    accept: "image/jpeg,image/png,image/webp",
+    required: true,
+  });
+  const status = el("p", { class: "small", role: "alert" });
+  const submit = el(
+    "button",
+    { class: "button primary", type: "submit" },
+    t("Save"),
+  );
+  const form = el(
+    "form",
+    {
+      class: "stack",
+      onSubmit: async (event) => {
+        event.preventDefault();
+        const image = file.files[0];
+        if (!image || submit.disabled) return;
+        status.textContent = "";
+        submit.disabled = true;
+        try {
+          if (image.size >= 1024 * 1024)
+            throw new Error("Choose an image smaller than 1 MB.");
+          const base64 = new Uint8Array(await image.arrayBuffer()).toBase64();
+          await saveAvatar(base64);
+        } catch (error) {
+          status.textContent = t(error.message);
+        } finally {
+          submit.disabled = false;
+        }
+      },
+    },
+    field(
+      "Choose a picture",
+      file,
+      "Use a JPEG, PNG or WebP under 3000 by 3000 pixels and 1 MB.",
+    ),
+    status,
+    submit,
+  );
+  modal("Change profile picture", form);
+}
+
+async function saveAvatar(base64) {
+  const result = base64
+    ? await api("me/avatar", { method: "PUT", data: { base64 } })
+    : await action(() => api("me/avatar", { method: "DELETE" }));
+  if (!result) return;
+  state.user.avatarVersion = result.avatarVersion;
+  if ($("#dialog").open) $("#dialog").close();
+  render();
+  toast(base64 ? "Profile picture saved." : "Profile picture removed.");
+}
+
+function blockAccount(id, reload) {
+  return confirmAction(
+    "Block account",
+    t(
+      "This hides their notebooks and prevents direct shares and group invitations between you.",
+    ),
+    async () => {
+      await api("blocks/" + id, { method: "PUT", data: {} });
+      toast("Account blocked.");
+      reload();
+    },
+    "Block",
+  );
+}
+
+function blockedAccountsModal() {
+  const list = el("div", { class: "stack" });
+  const draw = async () => {
+    const blocks = await api("blocks");
+    list.replaceChildren(
+      ...(blocks.length
+        ? blocks.map(({ id, name }) =>
+            el(
+              "div",
+              { class: "row between" },
+              el("span", {}, name),
+              button(
+                "Unblock",
+                () =>
+                  action(async () => {
+                    await api("blocks/" + id, { method: "DELETE" });
+                    await draw();
+                    toast("Account unblocked.");
+                  }),
+                "small",
+              ),
+            ),
+          )
+        : [el("p", { class: "muted" }, t("No blocked accounts."))]),
+    );
+  };
+  modal("Blocked accounts", list);
+  void action(draw);
+}
+
 function heading(title, subtitle, control) {
   return el(
     "div",
@@ -2048,18 +2164,27 @@ function store(key, value) {
     /* Preferences are optional. */
   }
 }
+let menuController;
 function closeMenus() {
+  menuController?.abort();
   document.querySelectorAll(".gn-menu").forEach((m) => m.remove());
   document
     .querySelectorAll("[aria-haspopup=menu][aria-expanded=true]")
     .forEach((b) => b.setAttribute("aria-expanded", "false"));
 }
-function openMenu(anchor, items) {
+function openMenu(anchor, items, heading = null) {
+  const alreadyOpen = anchor.getAttribute("aria-expanded") === "true";
   closeMenus();
+  if (alreadyOpen) return;
   const entries = items.filter(Boolean);
   const menuEl = el(
     "div",
-    { class: "gn-menu", role: "menu" },
+    {
+      class: "gn-menu",
+      role: "menu",
+      "aria-label": anchor.getAttribute("aria-label"),
+    },
+    heading,
     entries.map(([label, glyph, fn, danger]) =>
       el(
         "button",
@@ -2069,6 +2194,7 @@ function openMenu(anchor, items) {
           class: "gn-menu-item" + (danger ? " danger" : ""),
           onClick: () => {
             closeMenus();
+            anchor.focus();
             fn();
           },
         },
@@ -2102,19 +2228,21 @@ function openMenu(anchor, items) {
   });
   const dismiss = (e) => {
     if (e.type === "keydown" && e.key !== "Escape" && e.key !== "Tab") return;
-    if (e.type === "pointerdown" && menuEl.contains(e.target)) return;
+    if (
+      e.type === "pointerdown" &&
+      (menuEl.contains(e.target) || anchor.contains(e.target))
+    )
+      return;
     closeMenus();
     if (e.type === "keydown" && e.key === "Escape") anchor.focus();
-    document.removeEventListener("pointerdown", dismiss, true);
-    document.removeEventListener("keydown", dismiss, true);
   };
-  setTimeout(() => {
-    document.addEventListener("pointerdown", dismiss, true);
-    document.addEventListener("keydown", dismiss, true);
-  });
+  menuController = new AbortController();
+  const listeners = { capture: true, signal: menuController.signal };
+  document.addEventListener("pointerdown", dismiss, listeners);
+  document.addEventListener("keydown", dismiss, listeners);
 }
-function menuButton(label, items) {
-  const b = iconButton("more", label, (e) => {
+function menuButton(label, items, glyph = "more") {
+  const b = iconButton(glyph, label, (e) => {
     e.stopPropagation();
     openMenu(b, typeof items === "function" ? items() : items);
   });
@@ -2292,10 +2420,9 @@ function render() {
   const main = el(
     "main",
     { id: "main", tabindex: "-1", class: "main-area" },
-    topbar(),
     el("div", { class: "content" }, pageView()),
   );
-  $("#app").replaceChildren(el("div", { class: "shell" }, rail(), main));
+  $("#app").replaceChildren(el("div", { class: "folio-shell" }, topbar(main.querySelector(".gn-gallery-tools")), main));
 }
 // --- Home -------------------------------------------------------------------
 function notebookCard(n) {
@@ -2470,8 +2597,8 @@ function notebookGallery(notebooks, { search = false, limit = 0 } = {}) {
         { class: "gn-segmented", role: "group", "aria-label": t("View") },
         viewButtons,
       ),
-      sortSelect,
     ),
+    el("div", { class: "gn-gallery-sort" }, sortSelect),
     body,
   );
 }
@@ -2489,7 +2616,7 @@ function dashboard() {
         el("h1", {}, t("A little clarity, every day.")),
         el("p", {}, t("Import notes, a chapter, or a worksheet to begin.")),
       ),
-      button("New notebook", newNotebook, "gn-pill gn-dark", "plus"),
+
     ),
     !state.connections.length
       ? el(
@@ -2510,7 +2637,7 @@ function dashboard() {
       el("h2", {}, t("Recent notebooks")),
       button("View all", () => nav("notebooks"), "quiet small"),
     ),
-    notebookGallery(state.notebooks, { limit: 11 }),
+    notebookGallery(state.notebooks, { search: true, limit: 11 }),
     el("div", { class: "gn-section-head" }, el("h2", {}, t("Your study"))),
     metrics(p),
     el(
@@ -2891,14 +3018,6 @@ function workspaceView() {
     input.focus();
     input.select();
   }
-  const settingsButton = button(
-    "Settings",
-    notebookSettings,
-    "gn-pill",
-    "settings",
-  );
-  settingsButton.setAttribute("aria-label", t("Notebook settings"));
-  editOnly(settingsButton);
   const shareButton = isOwner()
     ? button("Share", () => shareModal(n), "gn-pill gn-hide-small", "share")
     : null;
@@ -2917,20 +3036,14 @@ function workspaceView() {
               : `${t("Can edit")} · ${t("shared by")} ${w.owner?.name || ""}`,
           ),
         );
-  const exportButton = button(
-    "Export notebook",
-    () =>
-      action(async () =>
-        download(
-          (n.title || "folio-notebook").replace(/[\\/:*?"<>|]+/g, " ") +
-            ".json",
-          JSON.stringify(await api("notebooks/" + n.id + "/export"), null, 2),
-          "application/json",
-        ),
+  const exportNotebook = () =>
+    action(async () =>
+      download(
+        (n.title || "folio-notebook").replace(/[\\/:*?"<>|]+/g, " ") + ".json",
+        JSON.stringify(await api("notebooks/" + n.id + "/export"), null, 2),
+        "application/json",
       ),
-    "gn-pill gn-hide-small",
-    "download",
-  );
+    );
   const graphButton = button(
     "Graph",
     () => nav("graph/" + n.id),
@@ -2939,37 +3052,61 @@ function workspaceView() {
   );
   graphButton.setAttribute("aria-label", t("Graph view"));
   graphButton.title = t("Graph view");
-  const account = el(
-    "button",
-    {
-      type: "button",
-      class: "gn-avatar",
-      "aria-label": t("Account menu"),
-      "aria-haspopup": "menu",
-      "aria-expanded": "false",
-      title: state.user.name,
-      onClick: () =>
-        openMenu(account, [
-          ["My notebooks", "book", () => nav("notebooks")],
-          ["Graph view", "graph", () => nav("graph/" + n.id)],
-          ["Flashcards", "cards", () => nav("flashcards")],
-          ["Learning progress", "chart", () => nav("progress")],
-          ["AI connections", "plug", () => nav("connections")],
-          ["Settings", "settings", () => nav("settings")],
-          [
-            "Sign out",
-            "logout",
-            () =>
-              action(async () => {
-                await api("auth/logout", { method: "POST", data: {} });
-                location.hash = "";
-                location.reload();
-              }),
-          ],
-        ]),
-    },
-    state.user.name.slice(0, 1).toUpperCase(),
-  );
+  const options = menuButton("Notebook options", [
+    isOwner() && ["Share", "share", () => shareModal(n)],
+    isOwner() && [
+      "Copy notebook",
+      "copy",
+      () =>
+        confirmAction(
+          "Copy notebook",
+          t(
+            "Create a notebook with the same settings and ready sources. Chat and study resources stay in the original.",
+          ),
+          async () => {
+            const { id } = await api("notebooks/" + n.id + "/copy", {
+              method: "POST",
+              data: {},
+            });
+            nav("notebook/" + id);
+          },
+          "Copy",
+        ),
+    ],
+    [
+      "Notebook activity",
+      "chart",
+      () =>
+        modal(
+          "Notebook activity",
+          el(
+            "dl",
+            { class: "folio-notebook-activity" },
+            [
+              [
+                "Ready sources",
+                w.sources.filter((s) => s.status === "ready").length,
+              ],
+              ["Chat messages", w.messages.length],
+              ["Study resources", w.artifacts.length],
+            ].map(([label, count]) => [
+              el("dt", {}, t(label)),
+              el("dd", {}, count),
+            ]),
+          ),
+        ),
+    ],
+    canEdit() && ["Configure chat", "sliders", notebookSettings],
+    canEdit() && ["Customize notebook", "edit", () => customizeNotebook(n)],
+    ["Graph view", "graph", () => nav("graph/" + n.id)],
+    ["Export notebook", "download", exportNotebook],
+    !isOwner() && [
+      "Block account",
+      "eye",
+      () => blockAccount(w.owner.id, () => nav("shared")),
+      true,
+    ],
+  ]);
   const tabs = el(
     "div",
     {
@@ -3030,11 +3167,9 @@ function workspaceView() {
         ),
         shareButton,
         graphButton,
-        exportButton,
-        settingsButton,
+        options,
         iconButton("sun", "Theme", toggleTheme),
-        iconButton("plug", "AI connections", () => nav("connections")),
-        account,
+        accountControls(),
       ),
     ),
     tabs,
@@ -3503,7 +3638,34 @@ function conversationView() {
     },
     icon("send"),
   );
-  const submit = (text) => void sendMessage(text, input, mode.value, send);
+  const webEnabled = () => stored("folio-chat-web", "on") === "on";
+  const connectedApps = menuButton(
+    "Connected apps",
+    () => [
+      [
+        webEnabled() ? "Turn off web links" : "Turn on web links",
+        "globe",
+        () => {
+          store("folio-chat-web", webEnabled() ? "off" : "on");
+          connectedApps.title = t(
+            webEnabled() ? "Web links on" : "Web links off",
+          );
+          connectedApps.focus();
+        },
+      ],
+      state.drive?.enabled &&
+        canEdit() && [
+          "Google Drive",
+          "file",
+          () => action(() => openDriveDraft(input.value)),
+        ],
+      ["Connect an app", "plug", () => nav("connections")],
+    ],
+    "sliders",
+  );
+  connectedApps.title = t(webEnabled() ? "Web links on" : "Web links off");
+  const submit = (text) =>
+    void sendMessage(text, input, mode.value, send, webEnabled());
   const form = el(
     "form",
     {
@@ -3540,6 +3702,7 @@ function conversationView() {
       el(
         "div",
         { class: "gn-composer-main" },
+        connectedApps,
         input,
         el(
           "span",
@@ -3554,9 +3717,6 @@ function conversationView() {
         model,
         effort,
         mode,
-        state.drive?.enabled && w.access !== "view"
-          ? button("Google Drive", () => action(() => openDriveDraft(input.value)), "quiet small")
-          : null,
       ),
     ),
   );
@@ -4884,19 +5044,26 @@ async function sendMessage(
   input = null,
   mode = "strict",
   send = null,
+  useWeb = true,
 ) {
   if (state.busy) return;
   let selection;
   try {
     selection = aiSelection();
     // A YouTube or Reddit link can supply its own evidence.
-    if (!selection.sourceIds.length &&
-        !/youtu\.?be|https?:\/\/(?:[a-z]+\.)?(?:reddit\.com|redd\.it)(?=[/:\s]|$)|^reddit(?:\/[a-z0-9_]+)?:/i.test(message.trim()))
+    if (
+      !selection.sourceIds.length &&
+      (!useWeb ||
+        !/youtu\.?be|https?:\/\/(?:[a-z]+\.)?(?:reddit\.com|redd\.it)(?=[/:\s]|$)|^reddit(?:\/[a-z0-9_]+)?:/i.test(
+          message.trim(),
+        ))
+    )
       throw new Error("Select at least one ready source.");
   } catch (error) {
     toast(error.message, true);
     return;
   }
+  const notebookId = state.activeNotebook;
   state.busy = true;
   chatAbort = new AbortController();
   if (send) send.disabled = true;
@@ -4921,18 +5088,15 @@ async function sendMessage(
   let responseText = "",
     done = false;
   try {
-    const response = await fetch(
-      "/api/notebooks/" + state.activeNotebook + "/chat",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": state.csrf,
-        },
-        body: JSON.stringify({ ...selection, message, mode }),
-        signal: chatAbort.signal,
+    const response = await fetch("/api/notebooks/" + notebookId + "/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": state.csrf,
       },
-    );
+      body: JSON.stringify({ ...selection, message, mode, useWeb }),
+      signal: chatAbort.signal,
+    });
     if (!response.ok) throw new Error((await response.json()).error);
     const reader = response.body.getReader(),
       decoder = new TextDecoder();
@@ -4949,7 +5113,7 @@ async function sendMessage(
         const event = JSON.parse(frame.slice(5));
         if (event.error) throw new Error(event.error);
         // New sources are listed by the notebook refresh below; select them now.
-        if (event.sourcesChanged)
+        if (event.sourcesChanged && location.hash === "#notebook/" + notebookId)
           for (const id of event.sourceIds) state.selected.add(id);
         if (event.text && !event.done) {
           responseText += event.text;
@@ -4971,7 +5135,8 @@ async function sendMessage(
       }
     }
     if (!done) throw new Error("The response ended early. Retry generation.");
-    await openNotebook(state.activeNotebook);
+    if (location.hash === "#notebook/" + notebookId)
+      await openNotebook(notebookId);
   } catch (error) {
     output.replaceChildren(
       el(
@@ -8335,61 +8500,57 @@ function mindmapModal(a) {
 }
 function notebookSettings() {
   const n = state.workspace.notebook;
-  const title = el("input", { value: n.title, required: true, maxlength: 200 }),
-    style = el(
-      "select",
-      {},
-      [
-        "Standard Assistant",
-        "Learning Guide",
-        "Socratic Tutor",
-        "Exam Preparation Tutor",
-        "Strict Examiner",
-        "Simplified Explanation",
-        "Advanced Academic Tutor",
-        "Custom Tutor",
-      ].map((s) =>
-        el(
-          "option",
-          { value: s, selected: s === (n.settings.style || "Learning Guide") },
-          s,
+  const styles = [
+    ["Standard Assistant", "Standard assistant"],
+    ["Learning Guide", "Learning guide"],
+    ["Socratic Tutor", "Socratic tutor"],
+    ["Exam Preparation Tutor", "Exam preparation tutor"],
+    ["Strict Examiner", "Strict examiner"],
+    ["Simplified Explanation", "Simplified explanation"],
+    ["Advanced Academic Tutor", "Advanced academic tutor"],
+    ["Custom Tutor", "Custom tutor"],
+  ];
+  const choice = (name, heading, values, current) =>
+    el(
+      "fieldset",
+      {
+        class: "folio-choices",
+      },
+      el("legend", {}, t(heading)),
+      el(
+        "div",
+        { class: "row wrap" },
+        values.map(([value, label]) =>
+          el(
+            "label",
+            {},
+            el("input", {
+              type: "radio",
+              name,
+              value,
+              checked: value === current,
+            }),
+            el("span", {}, t(label)),
+          ),
         ),
       ),
-    ),
-    language = el(
-      "select",
-      {},
-      outputLanguages.map((s) =>
-        el(
-          "option",
-          { value: s, selected: s === (n.settings.language || "English") },
-          s,
-        ),
+    );
+  const language = el(
+    "select",
+    {},
+    outputLanguages.map((s) =>
+      el(
+        "option",
+        { value: s, selected: s === (n.settings.language || "English") },
+        s,
       ),
     ),
-    answerLength = el(
-      "select",
-      {},
-      [
-        ["short", "Short"],
-        ["default", "Default"],
-        ["long", "Long"],
-      ].map(([value, label]) =>
-        el(
-          "option",
-          {
-            value,
-            selected: value === (n.settings.answerLength || "default"),
-          },
-          t(label),
-        ),
-      ),
-    ),
-    instructions = el("textarea", {
-      value: n.settings.instructions || "",
-      maxlength: 4000,
-      rows: 4,
-    });
+  );
+  const instructions = el("textarea", {
+    value: n.settings.instructions || "",
+    maxlength: 4000,
+    rows: 4,
+  });
   const form = el(
     "form",
     {
@@ -8397,14 +8558,14 @@ function notebookSettings() {
       onSubmit: (e) => {
         e.preventDefault();
         void action(async () => {
+          const data = new FormData(form);
           await api("notebooks/" + n.id, {
             method: "PATCH",
             data: {
-              title: title.value,
               settings: {
-                style: style.value,
+                style: data.get("style") || "Learning Guide",
                 language: language.value,
-                answerLength: answerLength.value,
+                answerLength: data.get("length"),
                 instructions: instructions.value,
               },
             },
@@ -8415,33 +8576,51 @@ function notebookSettings() {
         });
       },
     },
-    field("Title", title),
-    field("Teaching style", style),
+    choice(
+      "style",
+      "Teaching style",
+      styles,
+      n.settings.style || "Learning Guide",
+    ),
+    choice(
+      "length",
+      "Answer length",
+      [
+        ["default", "Default"],
+        ["long", "Longer"],
+        ["short", "Shorter"],
+      ],
+      n.settings.answerLength || "default",
+    ),
     field("Explanation language", language),
-    field("Answer length", answerLength),
     field("Custom instructions", instructions),
     el(
       "div",
       { class: "dialog-actions" },
-      button("Semantic indexing", semanticModal),
-      button(
-        "Delete notebook",
-        () =>
-          confirmAction(
-            "Delete notebook",
-            "Permanently remove this notebook, sources, resources and study history from the active database?",
-            async () => {
-              await api("notebooks/" + n.id, { method: "DELETE" });
-              nav("notebooks");
-            },
-          ),
-        "danger",
-      ),
       el("button", { class: "button primary", type: "submit" }, t("Save")),
     ),
   );
-  modal("Notebook settings", form);
+  modal("Configure chat", form, true);
 }
+
+function customizeNotebook(n) {
+  const entries = notebookMenu(n);
+  modal(
+    "Customize notebook",
+    el(
+      "div",
+      { class: "row wrap" },
+      ...entries
+        .slice(0, 2)
+        .map(([label, glyph, run]) => button(label, run, "small", glyph)),
+      button("Semantic indexing", semanticModal, "small"),
+      isOwner()
+        ? button("Delete notebook", entries.at(-1)[2], "small danger", "trash")
+        : null,
+    ),
+  );
+}
+
 function semanticModal() {
   const models = el(
     "select",
@@ -8617,6 +8796,17 @@ function settingsView() {
     "div",
     { class: "stack settings-panel" },
     heading("Settings"),
+    el(
+      "section",
+      { class: "panel stack" },
+      el("h2", {}, t("Account")),
+      el(
+        "div",
+        { class: "row wrap" },
+        button("Change profile picture", profilePictureModal, "small", "edit"),
+        button("Blocked accounts", blockedAccountsModal, "small"),
+      ),
+    ),
     activeAiPanel(),
     el(
       "section",
@@ -9415,6 +9605,13 @@ function sharedView() {
                 meta: n.groups.length
                   ? [t("in") + " " + n.groups.join(", ")]
                   : [t("shared directly")],
+                actions: [
+                  button(
+                    "Block",
+                    () => blockAccount(n.ownerId, render),
+                    "small quiet",
+                  ),
+                ],
               }),
             ),
             "Nothing has been shared with you yet. When a friend shares a notebook or adds one to your group, it appears here automatically.",
@@ -9425,7 +9622,21 @@ function sharedView() {
             el("h2", {}, t("Notebooks you follow")),
           ),
           socialGrid(
-            following.map((n) => socialCard(n, { meta: [n.community] })),
+            following.map((n) =>
+              socialCard(n, {
+                meta: [n.community],
+                actions:
+                  n.ownerId === state.user.id
+                    ? []
+                    : [
+                        button(
+                          "Block",
+                          () => blockAccount(n.ownerId, render),
+                          "small quiet",
+                        ),
+                      ],
+              }),
+            ),
             "Follow notebooks in a community to keep them here.",
           ),
         ),
@@ -9767,19 +9978,34 @@ function groupView(id) {
                   m.role === "owner" ? t("created the group") : m.email || "",
                 ),
               ),
-              owner && m.role !== "owner"
-                ? button(
-                    "Remove",
-                    () =>
-                      action(async () => {
-                        await api(`groups/${id}/members/${m.userId}`, {
-                          method: "DELETE",
-                        });
-                        reload();
-                      }),
-                    "small quiet",
-                  )
-                : null,
+              el(
+                "div",
+                { class: "row wrap" },
+                m.userId !== state.user.id
+                  ? button(
+                      "Block",
+                      () =>
+                        blockAccount(
+                          m.userId,
+                          m.role === "owner" ? () => nav("groups") : reload,
+                        ),
+                      "small quiet",
+                    )
+                  : null,
+                owner && m.role !== "owner"
+                  ? button(
+                      "Remove",
+                      () =>
+                        action(async () => {
+                          await api(`groups/${id}/members/${m.userId}`, {
+                            method: "DELETE",
+                          });
+                          reload();
+                        }),
+                      "small quiet",
+                    )
+                  : null,
+              ),
             ),
           ),
         ),
@@ -10067,7 +10293,8 @@ function communityView(id) {
                     "trash",
                   ),
                 ]
-              : followButton(c.following, `communities/${id}/follow`, reload),
+              : [followButton(c.following, `communities/${id}/follow`, reload),
+                  button("Block", () => blockAccount(c.community.presidentId, () => nav("communities")), "gn-pill")],
           ),
         ),
         president && addable.length

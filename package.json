@@ -1,7 +1,7 @@
 {
   "name": "folio-study",
   "productName": "Folio",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Folio — your sources, your AI, your way of learning.",
   "author": "Filhao2019",
   "license": "MIT",
@@ -29,6 +29,7 @@
   "dependencies": {
     "mammoth": "^1.11.0",
     "pdfjs-dist": "^6.2.108",
+    "sharp": "0.35.5",
     "zod": "^4.1.12"
   },
   "devDependencies": {

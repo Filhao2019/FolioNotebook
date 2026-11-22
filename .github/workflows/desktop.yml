@@ -8,7 +8,21 @@ on:
 permissions:
   contents: write
 jobs:
+  draft:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare the draft release
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" --notes "Folio $GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
   build:
+    needs: draft
+    if: ${{ !cancelled() && (needs.draft.result == 'success' || needs.draft.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
@@ -45,12 +59,12 @@ jobs:
             extracted=$(mktemp -d)
             ditto -x -k "dist/Folio-${version}-mac-${arch}.zip" "$extracted"
             codesign --verify --deep --strict --verbose=2 "$extracted/Folio.app"
+            test -f "$extracted/Folio.app/Contents/Resources/app/node_modules/@img/sharp-darwin-$arch/lib/sharp-darwin-$arch.node"
           done
       - if: startsWith(github.ref, 'refs/tags/')
         run: |
           shopt -s nullglob
           files=(dist/Folio-Setup-*.exe dist/*.dmg dist/*-mac-*.zip dist/*.AppImage dist/*.deb dist/*.pacman)
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --notes "Folio $GITHUB_REF_NAME"
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
         shell: bash
         env:

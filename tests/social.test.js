@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import sharp from "sharp";
 import { createApp } from "../server/app.js";
 import { fixtureProvider } from "./fixtures.js";
 
@@ -63,6 +65,109 @@ const note = (c, notebook) =>
     title: "Note",
     markdown: "Text",
   });
+
+test("avatar uploads are private, bounded, and checked before replacing a picture", async () => {
+  const png = (width, background) =>
+    sharp({
+      create: { width, height: 32, channels: 3, background },
+    })
+      .png()
+      .toBuffer();
+  const allowed = await png(2999, "#247560");
+  const denied = await png(32, "#953548");
+  const previous = process.env.FOLIO_AVATAR_BLOCKED_SHA256;
+  process.env.FOLIO_AVATAR_BLOCKED_SHA256 = createHash("sha256")
+    .update(denied)
+    .digest("hex");
+  let h;
+  try {
+    h = await harness(4441);
+  } finally {
+    if (previous === undefined) delete process.env.FOLIO_AVATAR_BLOCKED_SHA256;
+    else process.env.FOLIO_AVATAR_BLOCKED_SHA256 = previous;
+  }
+  try {
+    const alice = await h.person("alice"),
+      bob = await h.person("bob");
+    const put = (bytes) =>
+      alice.call("me/avatar", "PUT", { base64: bytes.toString("base64") });
+    const saved = await put(allowed);
+    assert.equal(saved.status, 200);
+    const picture = await fetch("http://127.0.0.1:4441/api/me/avatar", {
+      headers: { Cookie: alice.cookie },
+    });
+    assert.equal(picture.headers.get("content-type"), "image/webp");
+    const stored = await sharp(
+      Buffer.from(await picture.arrayBuffer()),
+    ).metadata();
+    assert.ok(stored.width <= 256 && stored.height <= 256);
+    assert.equal((await bob.call("me/avatar")).status, 404);
+    assert.equal((await h.client().call("me/avatar")).status, 401);
+    assert.equal((await put(denied)).status, 422);
+    assert.equal((await put(await png(3000, "#247560"))).status, 400);
+    assert.equal((await put(Buffer.alloc(1024 * 1024))).status, 413);
+    assert.equal((await put(Buffer.from("<svg/>"))).status, 400);
+    assert.equal(
+      (await alice.call("me")).data.user.avatarVersion,
+      saved.data.avatarVersion,
+    );
+    assert.equal((await alice.call("me/avatar", "DELETE")).status, 200);
+    assert.equal((await alice.call("me/avatar")).status, 404);
+  } finally {
+    await h.close();
+  }
+});
+
+test("blocks remove direct shares and deny notebook access, repeat shares and invitations", async () => {
+  const h = await harness(4442);
+  try {
+    const alice = await h.person("alice"),
+      bob = await h.person("bob");
+    const aliceId = (await alice.call("me")).data.user.id;
+    const bobId = (await bob.call("me")).data.user.id;
+    const { id } = (
+      await bob.call("notebooks", "POST", { title: "Bob's notebook" })
+    ).data;
+    const shares = `notebooks/${id}/shares`;
+    const { id: group } = (
+      await bob.call("groups", "POST", { name: "Study group" })
+    ).data;
+    const { id: community } = (
+      await bob.call("communities", "POST", { name: "Study room" })
+    ).data;
+    const member = { email: "alice@example.test" };
+    assert.equal((await bob.call(shares, "POST", member)).status, 201);
+    assert.equal(
+      (
+        await bob.call(`communities/${community}/notebooks`, "POST", {
+          notebookId: id,
+        })
+      ).status,
+      201,
+    );
+    assert.equal((await alice.call("notebooks/" + id)).status, 200);
+    assert.equal((await alice.call("blocks/" + aliceId, "PUT")).status, 400);
+    assert.equal((await alice.call("blocks/" + bobId, "PUT")).status, 200);
+    assert.deepEqual((await alice.call("blocks")).data, [
+      { id: bobId, name: "bob" },
+    ]);
+    assert.deepEqual((await bob.call("blocks")).data, []);
+    assert.deepEqual((await bob.call(shares)).data, []);
+    assert.deepEqual((await alice.call("shared")).data, []);
+    assert.deepEqual((await alice.call("communities")).data, []);
+    assert.equal((await alice.call("notebooks/" + id)).status, 404);
+    assert.equal((await bob.call(shares, "POST", member)).status, 403);
+    assert.equal(
+      (await bob.call(`groups/${group}/members`, "POST", member)).status,
+      403,
+    );
+    assert.equal((await alice.call("blocks/" + bobId, "DELETE")).status, 200);
+    assert.equal((await alice.call("notebooks/" + id)).status, 200);
+    assert.deepEqual((await bob.call(shares)).data, []);
+  } finally {
+    await h.close();
+  }
+});
 
 test("read-only sharing lets a friend study a notebook without editing it", async () => {
   const h = await harness(4395);

@@ -149,5 +149,13 @@ test("a shared notebook opens view only; groups and communities deliver notebook
   await expect(
     ben.page.getByRole("heading", { name: "Notebooks you follow" }),
   ).toBeVisible();
+  await ben.page.getByRole("button", { name: "Block", exact: true }).first().click();
+  await ben.page.getByRole("dialog").getByRole("button", { name: "Block", exact: true }).click();
+  await expect(ben.page.getByRole("button", { name: /Cell biology/ })).toHaveCount(0);
+  await ben.page.getByRole("button", { name: "Account menu" }).click();
+  await ben.page.getByRole("menuitem", { name: "Blocked accounts" }).click();
+  await expect(ben.page.getByRole("dialog").getByText("Ana")).toBeVisible();
+  await ben.page.getByRole("dialog").getByRole("button", { name: "Unblock" }).click();
+  await expect(ben.page.getByRole("dialog").getByText("No blocked accounts.")).toBeVisible();
   expect(errors).toEqual([]);
 });

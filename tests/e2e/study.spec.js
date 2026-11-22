@@ -149,7 +149,7 @@ test("account → provider → PDF → cited chat → review → quiz → reload
   await expect(
     page.getByRole("heading", { name: "CI Claude fixture" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "My notebooks", exact: true }).click();
+  await page.getByRole("link", { name: "My notebooks", exact: true }).click();
   await page.getByRole("button", { name: /Biology preparation/ }).click();
   await page.getByLabel("Choose a model", { exact: true }).selectOption({
     value: JSON.stringify([
@@ -333,8 +333,7 @@ test("guide editing, interactive maps, table export and mobile preferences", asy
   expect((await download).suggestedFilename()).toBe("Organelles.csv");
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Account menu", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page
     .getByRole("combobox", { name: "Theme", exact: true })
     .selectOption("dark");

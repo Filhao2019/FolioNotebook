@@ -1,7 +1,73 @@
 import { test, expect } from "@playwright/test";
+import sharp from "sharp";
 import { sourceText } from "../fixtures.js";
 
 const origin = "http://127.0.0.1:4391";
+
+test("top navigation, profile upload and notebook options work at narrow widths", async ({
+  page,
+}) => {
+  const { notebook } = await seed(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#dashboard");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(nav.getByRole("link", { name: "My notebooks" })).toBeVisible();
+  await nav.getByRole("button", { name: "Study", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Recent activity" }).click();
+  await expect(page).toHaveURL(/#activity$/);
+  await page
+    .getByRole("button", { name: "AI connections", exact: true })
+    .click();
+  await expect(page).toHaveURL(/#connections$/);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Settings", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+
+  const account = page.getByRole("button", { name: "Account menu" });
+  await account.click();
+  await page.getByRole("menuitem", { name: "Change profile picture" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Choose a picture").setInputFiles({
+    name: "fake.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("Invalid image"),
+  });
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("readable JPEG");
+  await dialog.getByLabel("Choose a picture").setInputFiles({
+    name: "profile.png",
+    mimeType: "image/png",
+    buffer: await sharp({
+      create: { width: 32, height: 32, channels: 3, background: "teal" },
+    })
+      .png()
+      .toBuffer(),
+  });
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(account.locator("img")).toHaveJSProperty("naturalWidth", 32);
+  await page.reload();
+  await expect(account.locator("img")).toHaveJSProperty("naturalWidth", 32);
+
+  await page.goto("/#notebook/" + notebook.id);
+  const options = page.getByRole("button", { name: "Notebook options" });
+  await options.click();
+  await page.getByRole("menuitem", { name: "Notebook activity" }).click();
+  await expect(dialog.getByText("Ready sources")).toBeVisible();
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await options.click();
+  await page.getByRole("menuitem", { name: "Copy notebook" }).click();
+  await dialog.getByRole("button", { name: "Copy", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Cell biology (copy)" }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Sources" }).click();
+  await expect(
+    page.getByRole("button", { name: "Respiration notes.txt" }),
+  ).toBeVisible();
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+});
 
 async function seed(page) {
   const session = await page.request
@@ -173,6 +239,10 @@ test("notebook workspace: home gallery, audio overview, menus, summary and chat 
   });
   await page.keyboard.press("Escape");
   await expect(slider).toBeHidden();
+  const apps = page.getByRole("button", { name: "Connected apps" });
+  await apps.click();
+  await page.getByRole("menuitem", { name: "Turn off web links" }).click();
+  await expect(apps).toHaveAttribute("title", "Web links off");
   const chatRequest = page.waitForRequest((r) => r.url().endsWith("/chat"));
   // Chat, follow-ups, pin as summary, then clear history.
   await page
@@ -184,7 +254,7 @@ test("notebook workspace: home gallery, audio overview, menus, summary and chat 
       "Mitochondria transfer energy into ATP during cellular respiration",
     ),
   ).toBeVisible();
-  expect((await chatRequest).postDataJSON().effort).toBe("extra");
+  expect((await chatRequest).postDataJSON()).toMatchObject({ effort: "extra", useWeb: false });
   // The workspace reloads after the answer, while the save is still held.
   await expect(effortButton).toHaveAccessibleName("Effort: Extra");
   slowSaves = false;
@@ -267,7 +337,8 @@ test("Reddit search and Drive draft are available in the notebook", async ({ pag
   await expect(dialog).not.toBeVisible();
 
   await page.getByRole("textbox", { name: "Chat", exact: true }).fill("Make a checklist");
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByRole("button", { name: "Connected apps", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Google Drive", exact: true }).click();
   await dialog.getByLabel("New document title").fill("Review notes");
   await dialog.getByRole("button", { name: "Generate Drive draft" }).click();
   await expect(dialog.getByLabel("Draft text")).toHaveValue("Check references.");

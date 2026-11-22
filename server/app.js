@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
 import { randomUUID, createHash } from "node:crypto";
-import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink, copyFile } from "node:fs/promises";
 import { join, resolve, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { avatarRoutes } from "./avatars.js";
 import { openDatabase } from "./db.js";
 import {
   AppError,
@@ -660,7 +661,7 @@ export async function createApp(options = {}) {
     );
     return csrf;
   }
-  async function body(req) {
+  async function body(req, limit = 15 * 1024 * 1024) {
     assert(
       req.headers["content-type"]?.startsWith("application/json"),
       415,
@@ -671,7 +672,7 @@ export async function createApp(options = {}) {
     for await (const chunk of req) {
       length += chunk.length;
       assert(
-        length < 15 * 1024 * 1024,
+        length < limit,
         413,
         "Request exceeds the upload limit.",
       );
@@ -690,6 +691,7 @@ export async function createApp(options = {}) {
     res.end(JSON.stringify(data));
   };
   const social = socialRoutes({ db, json, body, audit });
+  const avatars = avatarRoutes({ db, json, body, limiter });
   const removeFiles = async (rows) => {
     for (const row of rows)
       if (
@@ -785,9 +787,9 @@ export async function createApp(options = {}) {
       }
       const csrf = newSession(res, user.id);
       audit(user.id, "signed_in");
-      return json(res, { user: publicUser(user), csrf }, 201);
+      return json(res, { user: { ...publicUser(user), avatarVersion: avatars.version(user.id) }, csrf }, 201);
     }
-    if (path[0] === "me" && method === "GET")
+    if (path.length === 1 && path[0] === "me" && method === "GET")
       return json(
         res,
         sess
@@ -796,6 +798,7 @@ export async function createApp(options = {}) {
                 id: sess.user_id,
                 email: sess.email,
                 name: sess.name,
+                avatarVersion: avatars.version(sess.user_id),
                 guest: Boolean(sess.guest),
                 settings: JSON.parse(sess.settings),
               },
@@ -817,6 +820,7 @@ export async function createApp(options = {}) {
     }
     assert(sess, 401, "Sign in to continue.");
     const user = sess.user_id;
+    if (path.join("/") === "me/avatar") return avatars.handle(req, res, user);
     if (path[0] === "auth" && path[1] === "logout" && method === "POST") {
       db.run("DELETE FROM sessions WHERE hash=?", sess.hash);
       res.setHeader(
@@ -825,7 +829,7 @@ export async function createApp(options = {}) {
       );
       return json(res, { ok: true });
     }
-    if (path[0] === "me" && method === "PATCH") {
+    if (path.length === 1 && path[0] === "me" && method === "PATCH") {
       const input = settingsSchema.parse(await body(req));
       db.run(
         "UPDATE users SET settings=? WHERE id=?",
@@ -834,7 +838,7 @@ export async function createApp(options = {}) {
       );
       return json(res, { ok: true });
     }
-    if (path[0] === "me" && method === "DELETE") {
+    if (path.length === 1 && path[0] === "me" && method === "DELETE") {
       const files = db.all(
         "SELECT s.path FROM sources s JOIN notebooks n ON n.id=s.notebook_id WHERE n.user_id=?",
         user,
@@ -1327,6 +1331,46 @@ export async function createApp(options = {}) {
         await removeFiles(files);
         return json(res, { ok: true });
       }
+      if (path[2] === "copy" && path.length === 3 && method === "POST") {
+        requireAccess(notebook.access, "owner");
+        const sources = db.all("SELECT * FROM sources WHERE notebook_id=? AND status='ready'", notebook.id);
+        const checkQuota = () => {
+          assert(db.get("SELECT COUNT(*) AS count FROM notebooks WHERE user_id=?", user).count < 100,
+            400, "Notebook limit reached (100).");
+          assert(db.get("SELECT COUNT(*) AS count FROM sources s JOIN notebooks n ON n.id=s.notebook_id WHERE n.user_id=?", user).count + sources.length <= 200,
+            400, "Account storage quota reached (200 files, 10 MB each).");
+        };
+        checkQuota();
+        const copies = [];
+        const id = randomUUID();
+        try {
+          for (const source of sources) {
+            const sourceId = randomUUID();
+            const file = source.path ? join(uploadDirectory, sourceId + "." + source.format) : null;
+            copies.push({ source, id: sourceId, path: file });
+            if (file) await copyFile(source.path, file);
+          }
+          db.transaction(() => {
+            assert(db.get("SELECT 1 FROM notebooks WHERE id=?", notebook.id), 404, "This item is unavailable.");
+            checkQuota();
+            db.run("INSERT INTO notebooks(id,user_id,title,description,color,settings) VALUES(?,?,?,?,?,?)",
+              id, user, notebook.title.slice(0, 193) + " (copy)", notebook.description, notebook.color, notebook.settings);
+            for (const copy of copies) {
+              const source = copy.source;
+              assert(db.get("SELECT 1 FROM sources WHERE id=? AND status='ready'", source.id),
+                409, "A source changed while copying. Try again.");
+              db.run("INSERT INTO sources(id,notebook_id,title,format,path,hash,status,topic) VALUES(?,?,?,?,?,?,'ready',?)",
+                copy.id, id, source.title, source.format, copy.path, source.hash, source.topic);
+              db.run(`INSERT INTO chunks(id,source_id,ordinal,page,text)
+                SELECT lower(hex(randomblob(16))),?,ordinal,page,text FROM chunks WHERE source_id=?`, copy.id, source.id);
+            }
+          });
+        } catch (error) {
+          await removeFiles(copies);
+          throw error;
+        }
+        return json(res, { id }, 201);
+      }
       if (path[2] === "messages" && method === "DELETE") {
         db.run("DELETE FROM messages WHERE notebook_id=?", notebook.id);
         audit(user, "chat_cleared", notebook.id);
@@ -1547,6 +1591,7 @@ export async function createApp(options = {}) {
             // A chat message may bring its own sources.
             sourceIds: sourceIdList(0),
             message: z.string().trim().min(1).max(8000).optional(),
+            useWeb: z.boolean().default(true),
             kind: z
               .enum([
                 "guide",
@@ -1666,11 +1711,12 @@ export async function createApp(options = {}) {
           let question = input.message,
             sourceNote = "",
             linked = { ready: [], added: [], failures: [] };
-          const redditQuery = !generation && /^reddit(?:\/([a-z0-9_]{1,32}))?:\s*(.{1,500})$/i.exec(input.message);
-          const redditLinks = !generation
+          const useWeb = !generation && input.useWeb;
+          const redditQuery = useWeb && /^reddit(?:\/([a-z0-9_]{1,32}))?:\s*(.{1,500})$/i.exec(input.message);
+          const redditLinks = useWeb
             ? redditQuery ? [redditSearchUrl(redditQuery[2], redditQuery[1])] : redditUrls(input.message)
             : [];
-          const links = [...redditLinks, ...(!generation ? youtubeUrls(input.message) : [])].slice(0, 2);
+          const links = [...redditLinks, ...(useWeb ? youtubeUrls(input.message) : [])].slice(0, 2);
           if (redditQuery) question = "Summarize these Reddit results for " + redditQuery[2] + ". Cite each post by its permalink.";
           else if (redditLinks.length)
             sourceNote = "\n\n[Folio note: use the retrieved Reddit posts and comments. Cite their individual permalinks when available.]";
@@ -2664,12 +2710,10 @@ export async function createApp(options = {}) {
         "/graph.js": "graph.js",
         "/style.css": "style.css",
         "/favicon.svg": "favicon.svg",
-        "/fonts/dm-sans-regular.ttf": "fonts/dm-sans-regular.ttf",
-        "/fonts/dm-sans-medium.ttf": "fonts/dm-sans-medium.ttf",
-        "/fonts/dm-sans-semibold.ttf": "fonts/dm-sans-semibold.ttf",
-        "/fonts/dm-sans-bold.ttf": "fonts/dm-sans-bold.ttf",
-        "/fonts/lora-regular.ttf": "fonts/lora-regular.ttf",
-        "/fonts/figtree.ttf": "fonts/figtree.ttf",
+        "/fonts/google-sans-flex.ttf": "fonts/google-sans-flex.ttf",
+        "/fonts/google-sans.ttf": "fonts/google-sans.ttf",
+        "/fonts/google-sans-code.ttf": "fonts/google-sans-code.ttf",
+        "/fonts/roboto.ttf": "fonts/roboto.ttf",
       };
       const file = files[url.pathname];
       assert(file, 404, "Page not found.");

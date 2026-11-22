@@ -132,7 +132,7 @@ test("learning overview, mixed question types, study prompts and answer length",
 
   // Answer length and the new languages are saved with the notebook.
   await page.getByRole("button", { name: "Configure chat" }).click();
-  await dialog.getByLabel("Answer length").selectOption("short");
+  await dialog.getByRole("radio", { name: "Shorter" }).check();
   await dialog.getByLabel("Explanation language").selectOption("Español");
   const saved = page.waitForRequest(
     (r) => r.url().endsWith("/notebooks/" + notebook.id) && r.method() === "PATCH",
