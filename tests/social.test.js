@@ -89,8 +89,11 @@ test("avatar uploads are private, bounded, and checked before replacing a pictur
   try {
     const alice = await h.person("alice"),
       bob = await h.person("bob");
-    const put = (bytes) =>
-      alice.call("me/avatar", "PUT", { base64: bytes.toString("base64") });
+    const put = (bytes, crop) =>
+      alice.call("me/avatar", "PUT", {
+        base64: bytes.toString("base64"),
+        crop,
+      });
     const saved = await put(allowed);
     assert.equal(saved.status, 200);
     const picture = await fetch("http://127.0.0.1:4441/api/me/avatar", {
@@ -100,13 +103,21 @@ test("avatar uploads are private, bounded, and checked before replacing a pictur
     const stored = await sharp(
       Buffer.from(await picture.arrayBuffer()),
     ).metadata();
-    assert.ok(stored.width <= 256 && stored.height <= 256);
+    assert.deepEqual([stored.width, stored.height], [256, 256]);
     assert.equal((await bob.call("me/avatar")).status, 404);
     assert.equal((await h.client().call("me/avatar")).status, 401);
     assert.equal((await put(denied)).status, 422);
     assert.equal((await put(await png(3000, "#247560"))).status, 400);
     assert.equal((await put(Buffer.alloc(1024 * 1024))).status, 413);
     assert.equal((await put(Buffer.from("<svg/>"))).status, 400);
+    assert.equal(
+      (await put(allowed, { left: 0, top: 1, size: 32 })).status,
+      400,
+    );
+    assert.equal(
+      (await put(denied, { left: 0, top: 0, size: 32 })).status,
+      422,
+    );
     assert.equal(
       (await alice.call("me")).data.user.avatarVersion,
       saved.data.avatarVersion,

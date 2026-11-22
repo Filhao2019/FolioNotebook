@@ -4,6 +4,25 @@ import { sourceText } from "../fixtures.js";
 
 const origin = "http://127.0.0.1:4391";
 
+test("page headings and navigation align to the left across window sizes", async ({ page }) => {
+  await seed(page);
+  for (const width of [390, 768, 1024, 1440, 1920, 2133]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const route of ["shared", "groups", "sessions"]) {
+      await page.goto("/#" + route);
+      await expect(page.locator("main h1")).toBeVisible();
+      const heading = await page.locator("main h1").boundingBox();
+      expect(heading.x).toBeLessThanOrEqual(40);
+      await expect(page.locator("body")).toHaveJSProperty("scrollWidth", width);
+    }
+    if (width >= 1440) {
+      const brand = await page.getByRole("link", { name: "Folio home" }).boundingBox();
+      const nav = await page.getByRole("navigation", { name: "Main navigation" }).boundingBox();
+      expect(nav.x - brand.x - brand.width).toBeLessThanOrEqual(16);
+    }
+  }
+});
+
 test("top navigation, profile upload and notebook options work at narrow widths", async ({
   page,
 }) => {
@@ -34,21 +53,64 @@ test("top navigation, profile upload and notebook options work at narrow widths"
     mimeType: "image/png",
     buffer: Buffer.from("Invalid image"),
   });
-  await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog.getByRole("alert")).toContainText("readable JPEG");
+  await expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled();
   await dialog.getByLabel("Choose a picture").setInputFiles({
     name: "profile.png",
     mimeType: "image/png",
     buffer: await sharp({
-      create: { width: 32, height: 32, channels: 3, background: "teal" },
+      create: { width: 32, height: 96, channels: 3, background: "teal" },
     })
+      .composite([
+        {
+          input: {
+            create: { width: 32, height: 32, channels: 3, background: "red" },
+          },
+          left: 0,
+          top: 0,
+        },
+      ])
       .png()
       .toBuffer(),
   });
+  const crop = dialog.locator("canvas");
+  const pixel = () =>
+    crop.evaluate((canvas) => [
+      ...canvas.getContext("2d").getImageData(128, 128, 1, 1).data,
+    ]);
+  await expect(crop).toBeVisible();
+  expect(await pixel()).toEqual([255, 0, 0, 255]);
+  await crop.press("+");
+  await expect(dialog.getByLabel("Zoom", { exact: true })).toHaveValue("1.1");
+  await crop.press("ArrowDown");
+  await dialog.getByRole("button", { name: "Reset" }).click();
+  await expect(dialog.getByLabel("Zoom", { exact: true })).toHaveValue("1");
+  const bounds = await crop.boundingBox();
+  await page.mouse.move(
+    bounds.x + bounds.width / 2,
+    bounds.y + bounds.height * 0.85,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    bounds.x + bounds.width / 2,
+    bounds.y + bounds.height * 0.1,
+    { steps: 6 },
+  );
+  await page.mouse.up();
+  const preview = await pixel();
+  expect(preview).toEqual([0, 128, 128, 255]);
   await dialog.getByRole("button", { name: "Save" }).click();
-  await expect(account.locator("img")).toHaveJSProperty("naturalWidth", 32);
+  await expect(account.locator("img")).toHaveJSProperty("naturalWidth", 256);
+  const response = await page.request.get("/api/me/avatar");
+  const stored = await sharp(await response.body())
+    .extract({ left: 128, top: 128, width: 1, height: 1 })
+    .raw()
+    .toBuffer();
+  stored.forEach((channel, i) =>
+    expect(Math.abs(channel - preview[i])).toBeLessThan(5),
+  );
   await page.reload();
-  await expect(account.locator("img")).toHaveJSProperty("naturalWidth", 32);
+  await expect(account.locator("img")).toHaveJSProperty("naturalWidth", 256);
 
   await page.goto("/#notebook/" + notebook.id);
   const options = page.getByRole("button", { name: "Notebook options" });

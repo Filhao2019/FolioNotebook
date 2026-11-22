@@ -11,6 +11,13 @@ const upload = z.object({
     .min(4)
     .max(maxEncoded)
     .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+  crop: z
+    .object({
+      left: z.number().int().min(0).max(2999),
+      top: z.number().int().min(0).max(2999),
+      size: z.number().int().min(1).max(2999),
+    })
+    .optional(),
 });
 const digest = (image) => createHash("sha256").update(image).digest("hex");
 
@@ -38,7 +45,7 @@ export function avatarRoutes({ db, json, body, limiter }) {
     }
     assert(req.method === "PUT", 405, "Method not allowed.");
     limiter.take("avatar:" + user, 12);
-    const { base64 } = upload.parse(await body(req, maxEncoded + 256));
+    const { base64, crop } = upload.parse(await body(req, maxEncoded + 256));
     const original = Buffer.from(base64, "base64");
     assert(
       original.length < maxBytes,
@@ -52,6 +59,7 @@ export function avatarRoutes({ db, json, body, limiter }) {
       "This profile picture is blocked.",
     );
     const source = sharp(original, {
+      autoOrient: true,
       limitInputPixels: 3000 * 3000,
       failOn: "warning",
     });
@@ -75,11 +83,20 @@ export function avatarRoutes({ db, json, body, limiter }) {
       "Both image dimensions must be under 3000 pixels.",
     );
     assert((metadata.pages || 1) === 1, 400, "Choose a still image.");
+    const { width, height } = metadata.autoOrient;
+    if (crop) {
+      const { left, top, size } = crop;
+      assert(
+        left + size <= width && top + size <= height,
+        400,
+        "The crop must fit inside the picture.",
+      );
+      source.extract({ left, top, width: size, height: size });
+    }
     let image;
     try {
       image = await source
-        .autoOrient()
-        .resize(256, 256, { fit: "cover", withoutEnlargement: true })
+        .resize(256, 256, { fit: "cover", position: "attention" })
         .webp()
         .toBuffer();
     } catch {

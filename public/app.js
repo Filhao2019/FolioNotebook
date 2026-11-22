@@ -39,6 +39,9 @@ const pt = {
   "Change profile picture": "Alterar foto de perfil",
   "Remove profile picture": "Remover foto de perfil",
   "Choose a picture": "Escolher uma foto",
+  "Crop preview": "Prévia do recorte",
+  "Drag the picture or use arrow keys to move. Use + or − to zoom.":
+    "Arraste a foto ou use as setas para mover. Use + ou − para ajustar o zoom.",
   "Blocked accounts": "Contas bloqueadas",
   "Block account": "Bloquear conta",
   Block: "Bloquear",
@@ -336,7 +339,8 @@ const pt = {
   "Enter a web address first.": "Digite um endereço da web primeiro.",
   "Paste a public article, file, YouTube video or Reddit link. Folio reads YouTube transcripts and public Reddit posts and comments.":
     "Cole um artigo público, arquivo, vídeo do YouTube ou link do Reddit. O Folio lê transcrições do YouTube e publicações e comentários públicos do Reddit.",
-  "Web page, PDF, YouTube or Reddit link": "Página da web, PDF ou link do YouTube ou Reddit",
+  "Web page, PDF, YouTube or Reddit link":
+    "Página da web, PDF ou link do YouTube ou Reddit",
   "Search Reddit": "Pesquisar no Reddit",
   "Search terms": "Termos de pesquisa",
   "Subreddit (optional)": "Subreddit (opcional)",
@@ -348,8 +352,10 @@ const pt = {
   "Google Drive connected.": "Google Drive conectado.",
   "Google Drive disconnected.": "Google Drive desconectado.",
   "New document title": "Título do novo documento",
-  "Or paste a Google Docs link to edit": "Ou cole o link do Google Docs para editar",
-  "Exact text to replace (leave blank to append)": "Texto exato a substituir (deixe em branco para acrescentar)",
+  "Or paste a Google Docs link to edit":
+    "Ou cole o link do Google Docs para editar",
+  "Exact text to replace (leave blank to append)":
+    "Texto exato a substituir (deixe em branco para acrescentar)",
   "Instructions for the draft": "Instruções para o rascunho",
   "Generate Drive draft": "Gerar rascunho para o Drive",
   "Review Drive draft": "Revisar rascunho para o Drive",
@@ -533,7 +539,8 @@ const pt = {
     "Grafo de conhecimento. Arraste para mover, role para ampliar e selecione um item para ver suas conexões.",
   Effort: "Esforço",
   "Reasoning effort": "Esforço de raciocínio",
-  "Folio picks the effort for each task": "O Folio escolhe o esforço para cada tarefa",
+  "Folio picks the effort for each task":
+    "O Folio escolhe o esforço para cada tarefa",
   "Quick answers, fewest tokens": "Respostas rápidas, menos tokens",
   "Balanced depth and cost": "Equilíbrio entre profundidade e custo",
   "Deeper reasoning": "Raciocínio mais profundo",
@@ -1215,11 +1222,166 @@ function profilePictureModal() {
     required: true,
   });
   const status = el("p", { class: "small", role: "alert" });
+  const canvas = el("canvas", {
+    width: 256,
+    height: 256,
+    tabindex: 0,
+    "aria-label": t("Crop preview"),
+    "aria-describedby": "avatar-crop-help",
+  });
+  const zoom = el("input", {
+    type: "range",
+    min: 1,
+    max: 4,
+    step: 0.1,
+    value: 1,
+  });
+  const context = canvas.getContext("2d");
+  let picture, x, y, crop, drag;
+
+  function draw() {
+    const { naturalWidth: width, naturalHeight: height } = picture;
+    const size = Math.max(
+      1,
+      Math.round(Math.min(width, height) / zoom.valueAsNumber),
+    );
+    x = Math.max(size / 2, Math.min(width - size / 2, x));
+    y = Math.max(size / 2, Math.min(height - size / 2, y));
+    const left = Math.round(x - size / 2);
+    const top = Math.round(y - size / 2);
+    crop = { left, top, size };
+    context.clearRect(0, 0, 256, 256);
+    context.drawImage(picture, left, top, size, size, 0, 0, 256, 256);
+  }
+
+  function reset() {
+    zoom.value = "1";
+    x = picture.naturalWidth / 2;
+    y = Math.min(picture.naturalWidth, picture.naturalHeight) / 2;
+    draw();
+  }
+
+  function changeZoom(amount) {
+    if (amount > 0) zoom.stepUp();
+    else zoom.stepDown();
+    draw();
+  }
+
+  zoom.addEventListener("input", draw);
+  canvas.addEventListener("keydown", (event) => {
+    const step = Math.max(1, crop.size / 32);
+    switch (event.key) {
+      case "ArrowLeft":
+        x -= step;
+        break;
+      case "ArrowRight":
+        x += step;
+        break;
+      case "ArrowUp":
+        y -= step;
+        break;
+      case "ArrowDown":
+        y += step;
+        break;
+      case "+":
+        zoom.stepUp();
+        break;
+      case "-":
+        zoom.stepDown();
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    draw();
+  });
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || drag) return;
+    canvas.focus();
+    canvas.setPointerCapture(event.pointerId);
+    drag = event;
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (drag?.pointerId !== event.pointerId) return;
+    const scale = crop.size / canvas.getBoundingClientRect().width;
+    x -= (event.clientX - drag.clientX) * scale;
+    y -= (event.clientY - drag.clientY) * scale;
+    drag = event;
+    draw();
+  });
+  canvas.addEventListener("lostpointercapture", () => {
+    drag = null;
+  });
+  const editor = el(
+    "div",
+    { class: "avatar-crop", hidden: "" },
+    canvas,
+    el(
+      "p",
+      { class: "small", id: "avatar-crop-help" },
+      t("Drag the picture or use arrow keys to move. Use + or − to zoom."),
+    ),
+    field("Zoom", zoom),
+    el(
+      "div",
+      { class: "row" },
+      el(
+        "button",
+        {
+          type: "button",
+          class: "button small",
+          "aria-label": t("Zoom out"),
+          onClick: () => changeZoom(-1),
+        },
+        "−",
+      ),
+      el(
+        "button",
+        {
+          type: "button",
+          class: "button small",
+          "aria-label": t("Zoom in"),
+          onClick: () => changeZoom(1),
+        },
+        "+",
+      ),
+      button("Reset", reset, "small"),
+    ),
+  );
   const submit = el(
     "button",
-    { class: "button primary", type: "submit" },
+    { class: "button primary", type: "submit", disabled: true },
     t("Save"),
   );
+  file.addEventListener("change", async () => {
+    const image = file.files[0];
+    submit.disabled = editor.hidden = true;
+    status.textContent = "";
+    if (!image) return;
+    if (image.size >= 1024 * 1024) {
+      status.textContent = t("Choose an image smaller than 1 MB.");
+      return;
+    }
+    const url = URL.createObjectURL(image);
+    const preview = new Image();
+    try {
+      preview.src = url;
+      await preview.decode();
+      if (file.files[0] !== image) return;
+      if (preview.naturalWidth >= 3000 || preview.naturalHeight >= 3000)
+        throw new Error();
+      picture = preview;
+      reset();
+      submit.disabled = editor.hidden = false;
+    } catch {
+      if (file.files[0] === image)
+        status.textContent = t(
+          "Choose a readable JPEG, PNG or WebP under 3000 by 3000 pixels.",
+        );
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  });
   const form = el(
     "form",
     {
@@ -1230,15 +1392,16 @@ function profilePictureModal() {
         if (!image || submit.disabled) return;
         status.textContent = "";
         submit.disabled = true;
+        file.disabled = true;
+        const selectedCrop = crop;
         try {
-          if (image.size >= 1024 * 1024)
-            throw new Error("Choose an image smaller than 1 MB.");
           const base64 = new Uint8Array(await image.arrayBuffer()).toBase64();
-          await saveAvatar(base64);
+          await saveAvatar(base64, selectedCrop);
         } catch (error) {
           status.textContent = t(error.message);
         } finally {
           submit.disabled = false;
+          file.disabled = false;
         }
       },
     },
@@ -1247,15 +1410,16 @@ function profilePictureModal() {
       file,
       "Use a JPEG, PNG or WebP under 3000 by 3000 pixels and 1 MB.",
     ),
+    editor,
     status,
     submit,
   );
   modal("Change profile picture", form);
 }
 
-async function saveAvatar(base64) {
+async function saveAvatar(base64, crop) {
   const result = base64
-    ? await api("me/avatar", { method: "PUT", data: { base64 } })
+    ? await api("me/avatar", { method: "PUT", data: { base64, crop } })
     : await action(() => api("me/avatar", { method: "DELETE" }));
   if (!result) return;
   state.user.avatarVersion = result.avatarVersion;
