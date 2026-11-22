@@ -91,6 +91,7 @@ async function startLocalServer(dataDir, secretDir) {
     secretDirectory: secretDir,
     origin,
     production: false,
+    localDrive: true,
   });
   await new Promise((resolve, reject) => {
     folio.server.once("error", reject);

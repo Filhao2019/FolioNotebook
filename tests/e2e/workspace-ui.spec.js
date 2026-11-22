@@ -235,3 +235,44 @@ test("notebook workspace: home gallery, audio overview, menus, summary and chat 
   await page.screenshot({ path: "screenshots/gn-mobile-studio.png" });
   expect(errors).toEqual([]);
 });
+
+test("Reddit search and Drive draft are available in the notebook", async ({ page }) => {
+  const { notebook } = await seed(page);
+  await page.route("**/api/drive", (route) => route.fulfill({
+    json: { enabled: true, connected: true },
+  }));
+  await page.route("**/api/notebooks/" + notebook.id + "/drive-draft", (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      title: "Review notes", prompt: "Make a checklist",
+    });
+    return route.fulfill({ json: { id: "draft", title: "Review notes", text: "Check references." } });
+  });
+  let saves = 0;
+  await page.route("**/api/drive/apply", (route) => {
+    saves++;
+    expect(route.request().postDataJSON()).toEqual({ id: "draft" });
+    return route.fulfill({ json: { url: "https://docs.google.com/document/d/fixtureDocumentId/edit" } });
+  });
+  await page.route("**/api/notebooks/" + notebook.id + "/sources", (route) => {
+    expect(route.request().postDataJSON()).toEqual({ redditQuery: "active recall", subreddit: "study" });
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await page.goto("/#notebook/" + notebook.id);
+  await page.getByRole("button", { name: "Add sources", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByPlaceholder("Web page, PDF, YouTube or Reddit link")).toBeVisible();
+  await dialog.getByLabel("Search terms").fill("active recall");
+  await dialog.getByLabel("Subreddit (optional)").fill("study");
+  await dialog.getByRole("button", { name: "Add Reddit results" }).click();
+  await expect(dialog).not.toBeVisible();
+
+  await page.getByRole("textbox", { name: "Chat", exact: true }).fill("Make a checklist");
+  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await dialog.getByLabel("New document title").fill("Review notes");
+  await dialog.getByRole("button", { name: "Generate Drive draft" }).click();
+  await expect(dialog.getByLabel("Draft text")).toHaveValue("Check references.");
+  expect(saves).toBe(0);
+  await dialog.getByRole("button", { name: "Save to Google Drive" }).click();
+  await expect(dialog.getByRole("link", { name: "Open Google Doc" })).toBeVisible();
+  expect(saves).toBe(1);
+});

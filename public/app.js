@@ -316,9 +316,28 @@ const pt = {
   "Web address": "Endereço da web",
   "Add web page": "Adicionar página da web",
   "Enter a web address first.": "Digite um endereço da web primeiro.",
-  "Paste a link to a public article, PDF, text file or YouTube video (its transcript is read). Pages that need a sign-in or JavaScript cannot be read.":
-    "Cole o link de um artigo público, PDF, arquivo de texto ou vídeo do YouTube (a transcrição é lida). Páginas que exigem login ou JavaScript não podem ser lidas.",
-  "Web page, PDF or YouTube link": "Página da web, PDF ou link do YouTube",
+  "Paste a public article, file, YouTube video or Reddit link. Folio reads YouTube transcripts and public Reddit posts and comments.":
+    "Cole um artigo público, arquivo, vídeo do YouTube ou link do Reddit. O Folio lê transcrições do YouTube e publicações e comentários públicos do Reddit.",
+  "Web page, PDF, YouTube or Reddit link": "Página da web, PDF ou link do YouTube ou Reddit",
+  "Search Reddit": "Pesquisar no Reddit",
+  "Search terms": "Termos de pesquisa",
+  "Subreddit (optional)": "Subreddit (opcional)",
+  "Add Reddit results": "Adicionar resultados do Reddit",
+  "Connect Google Drive": "Conectar o Google Drive",
+  "Disconnect Google Drive": "Desconectar o Google Drive",
+  "Check connection": "Verificar conexão",
+  "Open Google sign-in": "Abrir login do Google",
+  "Google Drive connected.": "Google Drive conectado.",
+  "Google Drive disconnected.": "Google Drive desconectado.",
+  "New document title": "Título do novo documento",
+  "Or paste a Google Docs link to edit": "Ou cole o link do Google Docs para editar",
+  "Exact text to replace (leave blank to append)": "Texto exato a substituir (deixe em branco para acrescentar)",
+  "Instructions for the draft": "Instruções para o rascunho",
+  "Generate Drive draft": "Gerar rascunho para o Drive",
+  "Review Drive draft": "Revisar rascunho para o Drive",
+  "Save to Google Drive": "Salvar no Google Drive",
+  "Saved to Google Drive": "Salvo no Google Drive",
+  "Open Google Doc": "Abrir no Google Docs",
   "Add text as source": "Adicionar texto como fonte",
   "Search resources": "Buscar recursos",
   "Manual deck": "Baralho manual",
@@ -977,13 +996,14 @@ function editOnly(node) {
   return node;
 }
 async function refreshData() {
-  const [notebooks, connections, progress, providers, collections] =
+  const [notebooks, connections, progress, providers, collections, drive] =
     await Promise.all([
       api("notebooks"),
       api("connections"),
       api("progress"),
       api("providers"),
       api("collections"),
+      api("drive"),
     ]);
   Object.assign(state, {
     notebooks,
@@ -991,6 +1011,7 @@ async function refreshData() {
     progress,
     providers,
     collections,
+    drive,
   });
 }
 async function openNotebook(id, keep = true) {
@@ -1390,6 +1411,44 @@ function renderAuth(register = false) {
     ),
   );
 }
+function driveConnection() {
+  const status = el("p", { class: "small muted", role: "status" });
+  const controls = el("div", { class: "row wrap" });
+  const update = () => {
+    status.textContent = t(state.drive.connected ? "Google Drive connected." : "Google Drive disconnected.");
+    controls.replaceChildren(
+      state.drive.connected
+        ? button("Disconnect Google Drive", () => action(async () => {
+            const { revoked } = await api("drive", { method: "DELETE" });
+            state.drive = await api("drive");
+            update();
+            if (!revoked) toast("Disconnected in Folio. Remove access in your Google Account to revoke the token.", true);
+          }))
+        : button("Connect Google Drive", (event) => action(async () => {
+            const start = event.currentTarget;
+            start.disabled = true;
+            try {
+              const { url } = await api("drive/start", { method: "POST" });
+              status.textContent = t("Complete Google sign-in in your browser, then select Check connection.");
+              controls.append(el("a", {
+                href: url, target: "_blank", rel: "noopener noreferrer", class: "button primary",
+              }, t("Open Google sign-in")));
+            } catch (error) {
+              start.disabled = false;
+              throw error;
+            }
+          })),
+      button("Check connection", () => action(async () => {
+        state.drive = await api("drive");
+        update();
+      })),
+    );
+  };
+  if (state.drive.enabled) update();
+  else status.textContent = t("Google Drive requires a local Folio installation configured with a Google OAuth desktop client.");
+  return el("section", { class: "panel stack" }, el("h2", {}, t("Google Drive")), status, controls);
+}
+
 function connectionsView() {
   const provider = el(
     "select",
@@ -1539,6 +1598,7 @@ function connectionsView() {
       el("h2", {}, t("Connect a provider")),
       el("div", { class: "section-space" }, form),
     ),
+    driveConnection(),
     el("h2", {}, t("Connected providers")),
     state.connections.length
       ? el(
@@ -3494,6 +3554,9 @@ function conversationView() {
         model,
         effort,
         mode,
+        state.drive?.enabled && w.access !== "view"
+          ? button("Google Drive", () => action(() => openDriveDraft(input.value)), "quiet small")
+          : null,
       ),
     ),
   );
@@ -4495,6 +4558,60 @@ async function uploadFile(file) {
     data: { name: file.name, base64: btoa(binary) },
   });
 }
+function openDriveDraft(message) {
+  if (!state.drive.connected) {
+    nav("connections");
+    toast("Connect Google Drive first.");
+    return;
+  }
+  const notebook = state.activeNotebook;
+  const title = el("input", { maxlength: 160 });
+  const documentLink = el("input", { type: "url", maxlength: 2000 });
+  const original = el("textarea", { rows: 2, maxlength: 4000 });
+  const prompt = el("textarea", { value: message, rows: 4, maxlength: 8000 });
+  const status = el("div", { role: "status" });
+  const make = button("Generate Drive draft", () => {
+    make.disabled = true;
+    status.replaceChildren(busy("Working…"));
+    void action(async () => {
+      const draft = await api("notebooks/" + notebook + "/drive-draft", {
+        method: "POST",
+        data: { ...aiSelection(), title: title.value, document: documentLink.value, original: original.value, prompt: prompt.value },
+      });
+      if (!$("#dialog").contains(make) || !$("#dialog").open) return;
+      const apply = button("Save to Google Drive", () => {
+        apply.disabled = true;
+        void action(async () => {
+          const { url } = await api("drive/apply", { method: "POST", data: { id: draft.id } });
+          if (!$("#dialog").contains(apply) || !$("#dialog").open) return;
+          modal("Saved to Google Drive", el("div", { class: "stack" },
+            el("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, t("Open Google Doc")),
+          ));
+        });
+      }, "primary");
+      modal("Review Drive draft", el("div", { class: "stack" },
+        el("h3", {}, draft.title),
+        el("p", {}, t(draft.original ? "Replace the passage below." : draft.editing ? "Append to this document." : "Create a Google Doc in My Drive.")),
+        draft.original ? el("pre", { style: "white-space: pre-wrap" }, draft.original) : null,
+        el("textarea", { rows: 10, readonly: true, "aria-label": t("Draft text"), value: draft.text }),
+        apply,
+      ), true);
+    }).finally(() => {
+      make.disabled = false;
+      status.replaceChildren();
+    });
+  }, "primary");
+  modal("Google Drive", el("div", { class: "stack" },
+    field("New document title", title),
+    field("Or paste a Google Docs link to edit", documentLink),
+    field("Exact text to replace (leave blank to append)", original),
+    field("Instructions for the draft", prompt),
+    el("p", { class: "muted small" }, t("Folio sends selected source passages and text from the linked document to your active AI provider when you draft.")),
+    status,
+    make,
+  ), true);
+}
+
 function uploadModal() {
   const files = el("input", {
       type: "file",
@@ -4511,26 +4628,34 @@ function uploadModal() {
     link = el("input", {
       type: "url",
       maxlength: 2000,
-      placeholder: t("Web page, PDF or YouTube link"),
+      placeholder: t("Web page, PDF, YouTube or Reddit link"),
       "aria-label": t("Web address"),
     });
-  const addLink = button("Add web page", () => {
-    addLink.disabled = true;
+  const query = el("input", { maxlength: 500, placeholder: t("Search terms") });
+  const subreddit = el("input", { maxlength: 32, placeholder: "LocalLLaMA" });
+  const addWebSource = (trigger, data) => {
+    trigger.disabled = true;
     status.replaceChildren(busy("Working…"));
     void action(async () => {
-      if (!link.value.trim()) throw new Error("Enter a web address first.");
+      if (!data.url && !data.redditQuery)
+        throw new Error(t("Enter a web address or Reddit search terms."));
       await api("notebooks/" + state.activeNotebook + "/sources", {
         method: "POST",
-        data: { url: link.value.trim() },
+        data,
       });
       $("#dialog").close();
       await openNotebook(state.activeNotebook);
       toast("Upload queued.");
     }).finally(() => {
-      addLink.disabled = false;
+      trigger.disabled = false;
       status.replaceChildren();
     });
-  });
+  };
+  const addLink = button("Add web page", () => addWebSource(addLink, { url: link.value.trim() }));
+  const addReddit = button("Add Reddit results", () => addWebSource(addReddit, {
+    redditQuery: query.value.trim(),
+    subreddit: subreddit.value.trim(),
+  }));
   const upload = button(
     "Add sources",
     () => {
@@ -4569,11 +4694,15 @@ function uploadModal() {
         "p",
         { class: "muted small" },
         t(
-          "Paste a link to a public article, PDF, text file or YouTube video (its transcript is read). Pages that need a sign-in or JavaScript cannot be read.",
+          "Paste a public article, file, YouTube video or Reddit link. Folio reads YouTube transcripts and public Reddit posts and comments.",
         ),
       ),
       field("Web address", link),
       addLink,
+      el("h3", {}, t("Search Reddit")),
+      field("Search terms", query),
+      field("Subreddit (optional)", subreddit),
+      addReddit,
       el("hr"),
       el("h3", {}, t("Paste source text")),
       field("Title", name),
@@ -4760,8 +4889,9 @@ async function sendMessage(
   let selection;
   try {
     selection = aiSelection();
-    // A pasted YouTube link becomes the source, so it may be the only one.
-    if (!selection.sourceIds.length && !/youtu\.?be/i.test(message))
+    // A YouTube or Reddit link can supply its own evidence.
+    if (!selection.sourceIds.length &&
+        !/youtu\.?be|https?:\/\/(?:[a-z]+\.)?(?:reddit\.com|redd\.it)(?=[/:\s]|$)|^reddit(?:\/[a-z0-9_]+)?:/i.test(message.trim()))
       throw new Error("Select at least one ready source.");
   } catch (error) {
     toast(error.message, true);

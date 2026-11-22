@@ -46,6 +46,23 @@ The installed app starts Folio's server privately on 127.0.0.1 and keeps data in
 
 Sharing, groups and communities work between accounts on the **same Folio server**. To use them with friends, host one Folio server over HTTPS (see [operations](docs/OPERATIONS.md)) and have everyone choose **Folio → Server settings… → A shared Folio server** in the app.
 
+## Google Drive and Reddit
+
+### Connect Google Drive
+
+1. In a Google Cloud project, enable the **Google Drive API** and **Google Docs API**. Set up the OAuth consent screen and create an OAuth client of type **Desktop app**. If the consent screen is in Testing, add your Google account as a test user. [Google desktop OAuth setup](https://developers.google.com/identity/protocols/oauth2/native-app)
+2. Set **GOOGLE_DRIVE_CLIENT_ID** and **GOOGLE_DRIVE_CLIENT_SECRET** in Folio's local **.env** and restart Folio. Use the project folder for a source checkout. The installed app uses the **Folio** app-data folder, such as **%APPDATA%\Folio** on Windows or **~/Library/Application Support/Folio** on macOS.
+3. In **AI connections → Google Drive**, select **Connect Google Drive**, open Google sign-in, and grant access in your browser. Return to Folio and select **Check connection**. Folio encrypts the refresh token in its local database.
+4. In a notebook, select **Google Drive** under Chat to draft a document from your instructions. Give it a title to create a Google Doc in My Drive, or paste a Google Docs link to append text or replace one exact passage in the selected tab. Review the proposed text and select **Save to Google Drive**.
+
+Folio requests permission to read and edit Google Docs you can access and to manage Drive files it creates. A draft sends relevant selected notebook passages and up to 12,000 characters from the linked document to your active AI provider. Every write requires approval in Folio. On a shared Folio server the Drive connection is unavailable. Tasks involving other Drive file formats or folders are outside this release.
+
+### Read and search Reddit
+
+In **Sources → Add sources**, paste a public Reddit permalink, subreddit, or profile beside YouTube and web links, or use **Search Reddit** to import results. Paste a Reddit link straight into notebook chat and Folio reads it before answering. To search in chat, use **reddit: active recall** or **reddit/study: active recall**.
+
+Public Atom feeds work where Reddit serves them. They expose a limited set of entries and comments. For richer results, set **REDDIT_CLIENT_ID** and **REDDIT_CLIENT_SECRET** on your Folio server with an approved Reddit app, then restart. Folio uses app-only OAuth and falls back to Atom when Reddit rejects the credentials. If both are unavailable, Folio reports the failure. [Reddit Responsible Builder Policy](https://support.reddithelp.com/hc/en-us/articles/42728983564564-Responsible-Builder-Policy) · [Agent Reach](https://github.com/Panniantong/Agent-Reach)
+
 ## Implemented
 
 - Password accounts and persistent HttpOnly sessions; guest workspaces; ownership checks.

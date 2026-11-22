@@ -1,7 +1,7 @@
 import { createApp } from "./app.js";
-const app = await createApp();
 const host = process.env.HOST || "127.0.0.1",
   port = Number(process.env.PORT || 4310);
+const app = await createApp({ localDrive: host === "127.0.0.1" });
 app.server.listen(port, host, () =>
   console.log(
     `Folio is ready at ${process.env.APP_ORIGIN || `http://${host}:${port}`}`,

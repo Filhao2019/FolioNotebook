@@ -6,6 +6,7 @@ import { BlockList, isIP } from "node:net";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
 import { AppError, assert } from "./security.js";
 import { fetchYouTubeSource, youtubeVideoId } from "./youtube.js";
+import { fetchRedditSource, redditUrl } from "./reddit.js";
 import { fileName } from "./text.js";
 
 const MAX_BYTES = 10 * 1024 * 1024,
@@ -289,13 +290,14 @@ export async function toSource(url, type, body) {
 /**
  * Fetch a public web address and convert it to a source file.
  * Every redirect hop is re-validated; private and loopback hosts are refused.
- * YouTube video links are not downloaded as pages: their transcript is fetched instead.
+ * Reddit links use the Reddit reader, and YouTube videos use their transcripts.
  * @param {string} raw
  * @param {{ languages?: string[] }} [options] preferred transcript languages
  * @returns {Promise<{name:string, buffer:Buffer, url:string}>}
  */
 export async function fetchWebSource(raw, options = {}) {
   let url = parsePublicUrl(raw);
+  if (redditUrl(url.href)) return fetchRedditSource(url.href);
   const videoId = youtubeVideoId(url.href);
   if (videoId)
     return fetchYouTubeSource(videoId, { languages: options.languages });
@@ -304,6 +306,7 @@ export async function fetchWebSource(raw, options = {}) {
     const result = await requestOnce(url, signal);
     if (result.redirect) {
       url = parsePublicUrl(new URL(result.redirect, url).href);
+      if (redditUrl(url.href)) return fetchRedditSource(url.href);
       continue;
     }
     const body = decompress(result.body, result.encoding);
